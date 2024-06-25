@@ -1,0 +1,19 @@
+#!/bin/sh
+
+# usage:
+#
+#     draw <INPUT IMAGE> <OUTPUT IMAGE>
+
+magick convert \
+  -font Ubuntu \
+  -fill white \
+  -stroke black -strokewidth 3 \
+  -pointsize 72 \
+  -gravity North \
+  -draw "text 320,100 'A'" \
+  -draw "text -380,475 'B'" \
+  -draw "text 40,545 'C'" \
+  -draw "text -85,710 'D'" \
+  -draw "text 120,812 'E'" \
+  "$1" \
+  "$2"
