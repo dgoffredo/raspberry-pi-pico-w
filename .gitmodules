@@ -1,0 +1,3 @@
+[submodule "SCD4x"]
+	path = SCD4x
+	url = git@github.com:dgoffredo/SCD4x.git
