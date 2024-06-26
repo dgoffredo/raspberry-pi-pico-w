@@ -27,7 +27,7 @@ target_include_directories(co2 PRIVATE ../embedded-i2c-scd4x)
 target_link_libraries(co2
         pico_stdlib
         # we need wifi in order to access the GPIO for the built-in LED
-        # TODO pico_cyw43_arch_none
+        pico_cyw43_arch_none
         hardware_i2c
         )
 
