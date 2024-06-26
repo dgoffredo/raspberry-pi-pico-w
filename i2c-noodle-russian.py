@@ -7,11 +7,15 @@ from sensor_pack.bus_service import I2cAdapter
 import sys
 import time
 
+
 i2c = machine.I2C(
     id=0, # Which IC2 bus, e.g. 0 for I2C0, 1 for I2C1
     sda=machine.Pin(12),
     scl=machine.Pin(13),
-    freq=400_000)
+    freq=400_000,
+    # freq=200_000,
+    timeout=50_000)
+    # timeout=500_000)
  
 print('Scanning i2c bus...')
 devices = i2c.scan()
@@ -22,31 +26,22 @@ adaptor = I2cAdapter(i2c)
 sen = scd4x_sensirion.SCD4xSensirion(adaptor)
 
 # This section all works. You can loop it as many times as you like.
-for _ in range(1):
-    sid = sen.get_id()
-    print(f"Sensor id 3 x Word: {sid[0]:x}:{sid[1]:x}:{sid[2]:x}")
-    # t_offs = 0.0
-    # Warning: To change or read sensor settings, the SCD4x must be in idle mode!!!
-    # Otherwise an EIO exception will be raised!
-    # print(f"Set temperature offset sensor to {t_offs} Celsius")
-    # sen.set_temperature_offset(t_offs)
-    t_offs = sen.get_temperature_offset()
-    print(f"Get temperature offset from sensor: {t_offs} Celsius")
-    # masl = 160  # Meter Above Sea Level
-    # print(f"Set my place M.A.S.L. to {masl} meter")
-    # sen.set_altitude(masl)
-    masl = sen.get_altitude()
-    print(f"Get M.A.S.L. from sensor: {masl} meter")
-    # data ready
+for _ in range(3):
+    # sid = sen.get_id()
+    # print(f"Sensor id 3 x Word: {sid[0]:x}:{sid[1]:x}:{sid[2]:x}")
+    # t_offs = sen.get_temperature_offset()
+    # print(f"Get temperature offset from sensor: {t_offs} Celsius")
+    # masl = sen.get_altitude()
+    # print(f"Get M.A.S.L. from sensor: {masl} meter")
     if sen.is_data_ready():
         print("Measurement data can be read")  # Данные измерений могут быть прочитаны!
     else:
         print("Measurement data is not ready")
 
-    if sen.is_auto_calibration():
-        print("The automatic self-calibration is ON")
-    else:
-        print("The automatic self-calibration is OFF")
+    # if sen.is_auto_calibration():
+    #    print("The automatic self-calibration is ON")
+    # else:
+    #    print("The automatic self-calibration is OFF")
 
 # TODO: Reading the response after sending a self-test command fails with EIO on read.
 if False:
@@ -66,7 +61,7 @@ if False:
 
     seconds = 6
     print(f'sleeping for {seconds} seconds')
-    time.sleep(6)
+    time.sleep(seconds)
 
     check = True
     if check:
@@ -82,7 +77,7 @@ if False:
 # TODO: Any command sent after setting the sensor to measurement mode fails with EIO on write.
 if True:
     # 1. Go into periodic sensor mode,
-    # 2. sleep for ~10 seconds,
+    # 2. sleep for a few seconds seconds (in reality, would be at least 5 seconds),
     # 3. check if data is ready.
     # 4. If data is not ready, sleep for a second and goto 3.
     # 5. If data is ready, read the data.
@@ -93,23 +88,34 @@ if True:
 
     def check():
         print('Checking if measurement data is ready.')
-        return sen.is_data_ready()
+        try:
+            return sen.is_data_ready()
+        except Exception as err:
+            sys.print_exception(err)
+            return False
 
     while True:
-        # 2:
-        seconds = 5
-        print(f'sleeping for {seconds} seconds')
-        time.sleep(seconds)
-        # 3:
-        while not check():
-           # 4:
-            seconds = 1
-            print('Data is not ready. Sleeping for {seconds} seconds')
-            time.sleep(seconds)
-        # 5:
-        print('Reading measurement data')
-        co2, t, rh = sen.get_meas_data()
-        print(f"CO2 [ppm]: {co2}; T [°C]: {t}; RH [%]: {rh}")
+        try:
+            # 2:
+            # seconds = 5
+            # print(f'sleeping for {seconds} seconds')
+            # time.sleep(seconds)
+            # 3:
+            while not check():
+               # 4:
+               seconds = 1
+               print(f'Data is not ready or an error occurred. Sleeping for {seconds} seconds')
+               picozero.pico_led.on()
+               time.sleep(seconds / 2)
+               picozero.pico_led.off()
+               time.sleep(seconds / 2)
+            # 5:
+            print('Reading measurement data')
+            co2, t, rh = sen.get_meas_data()
+            print(f"CO2 [ppm]: {co2}; T [°C]: {t}; RH [%]: {rh}")
+            sys.exit() # TODO
+        except Exception as err:
+            sys.print_exception(err)
 
 # TODO: I disabled the rest of the module author's example code.
 sys.exit()
@@ -153,13 +159,19 @@ while cnt <= repeat:
     while True:
         try:
             print('about to call is_data_ready')
-            if sen.is_data_ready():
-                print('sensor is ready. About to call get_meas_data')
+            check = False
+            if check:
+                if sen.is_data_ready():
+                    print('sensor is ready. About to call get_meas_data')
+                    co2, t, rh = sen.get_meas_data()
+                    print(f"CO2 [ppm]: {co2}; T [°C]: {t}; RH [%]: {rh}")
+                    break
+                else:
+                    print('Data is not yet ready.')
+            else:
+                print("About to call get_meas_data, without checking if it's ready.")
                 co2, t, rh = sen.get_meas_data()
                 print(f"CO2 [ppm]: {co2}; T [°C]: {t}; RH [%]: {rh}")
-                break
-            else:
-                print('Data is not yet ready.')
         except Exception as err:
             print(err)
             time.sleep_ms(multiplier * wt)

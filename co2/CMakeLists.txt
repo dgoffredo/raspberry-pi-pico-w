@@ -15,7 +15,8 @@ pico_sdk_init()
 add_compile_options(-Wall -Werror)
 
 add_executable(co2
-        co2.c
+        # co2.c
+        sweep.c
         ../embedded-i2c-scd4x/sensirion_i2c.c
         ../embedded-i2c-scd4x/sensirion_common.c
         ../embedded-i2c-scd4x/scd4x_i2c.c
