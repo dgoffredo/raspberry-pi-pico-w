@@ -27,3 +27,7 @@ target_link_libraries(blink
 
 # create map/bin/hex file etc.
 pico_add_extra_outputs(blink)
+
+# map stdio to the USB CDC, not to UART
+pico_enable_stdio_usb(blink 1)
+pico_enable_stdio_uart(blink 0)
