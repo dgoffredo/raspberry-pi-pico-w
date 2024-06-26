@@ -1,0 +1,19 @@
+#!/bin/sh
+
+set -x
+set -e
+
+src=$(dirname "$0")
+out="$src/build-bin"
+
+if [ "$1" = 'clean' ]; then
+  rm -rf "$out"
+  exit
+fi
+
+mkdir -p "$out"
+
+cd "$out"
+cmake ..
+make -j "$(nproc)" # VERBOSE=1
+printf '\nBuild exited with status %s\n' "$?"

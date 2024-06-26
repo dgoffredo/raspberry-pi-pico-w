@@ -1,3 +1,6 @@
 [submodule "SCD4x"]
 	path = SCD4x
 	url = git@github.com:dgoffredo/SCD4x.git
+[submodule "embedded-i2c-scd4x"]
+	path = embedded-i2c-scd4x
+	url = git@github.com:dgoffredo/embedded-i2c-scd4x.git
