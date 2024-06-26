@@ -33,7 +33,7 @@ I'm using the pico's flavor of [micropython][4] and the [Thonny][5] IDE.
 I've played with two micropython drivers for the SCD41:
 [peter-l5/MicroPython_SCD4X][6] and [octaprog7/SCD4x][7].
 
-The code here is based on octaprog7/SCD4x. The git submodule [SCD4x][8] is my
+The code here is based on octaprog7/SCD4x. The git submodule `SCD4x` is my
 debug fork of octaprog7's code.
 
 My development process goes like this:
@@ -43,15 +43,15 @@ My development process goes like this:
 3. The pico's onboard LED will blink for two seconds on account of the
   [main.py](main.py) program installed on the pico.
 4. Click the "Stop/Restart Backend" button in Thonny to connect it to the pico.
-5. Hack on [ic2-noodle-russian.py](ic2-noodle-russian.py) in an editor.
+5. Hack on [i2c-noodle-russian.py](i2c-noodle-russian.py) in an editor.
 6. Click the "Run current script" button in Thonny to execute
    `ic2-noodle-russian.py` on the pico.
 7. Wail at my repeated failure.
 8. Press the black push button on the breadboard to power cycle everything.
 9. GOTO 3.
 
-`ic2-noodle-russian.py` is based on [SCD4x/main.py](SCD4x/main.py), but I've
-since modified it a lot.
+`ic2-noodle-russian.py` is based on `SCD4x/main.py`, but I've since modified it
+a lot.
 
 It creates an `machine.I2C` object, enumerates the devices connected to the
 bus, then wraps it in octaprog7's `I2cAdapter`, and uses the adapter to create
@@ -64,12 +64,11 @@ more of octaprog's original `main.py`.
 Whenever I modify a source file that isn't `ic2-noodle-russian.py`, I have to
 remember to copy it onto the pico. Right now the pico contains:
 
-- `sensor_pack/`, copied from [SCD4x/sensor_pack](SCD4x/sensor_pack)
+- `sensor_pack/`, copied from `SCD4x/sensor_pack`
 - `lib/picozero/`, which I installed using Thonny's
   "Tools > Manage packages..." menu option.
 - `main.py`, copied from [main.py](main.py)
-- `scd4x_sensirion.py`, copied from
-  [SCD4x/scd4x_sensirion.py](SCD4x/scd4x_sensirion.py).
+- `scd4x_sensirion.py`, copied from `SCD4x/scd4x_sensirion.py`
 
 Here's what a micropython session running `ic2-noodle-russian.py` looks like,
 as of this writing:
@@ -131,4 +130,3 @@ case.
 [5]: https://thonny.org/
 [6]: https://github.com/peter-l5/MicroPython_SCD4X
 [7]: https://github.com/octaprog7/SCD4x
-[8]: ./SCD4x
