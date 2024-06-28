@@ -1,9 +1,13 @@
 #!/bin/sh
 
-set -x
 set -e
 
-src=$(dirname "$0")
+if [ "$1" = '' ]; then
+  >&2 printf 'usage: %s SOURCE_DIRECTORY\n' "$0"
+  exit 1
+fi
+
+src=$1
 out="$src/build-bin"
 
 if [ "$1" = 'clean' ]; then
@@ -15,5 +19,5 @@ mkdir -p "$out"
 
 cd "$out"
 cmake ..
-make -j "$(nproc)" VERBOSE=1
+make -j "$(nproc)" # VERBOSE=1
 printf '\nBuild exited with status %s\n' "$?"

@@ -1,4 +1,9 @@
+# old code that I was playing with
 /MicroPython_SCD4X/
 /i2c-noodle-micro.py
+# wifi password, etc.
 /secrets.py
+# output build directories for C code
 build-bin/
+# log file produced by GNU screen when using USB CDC
+screenlog.*

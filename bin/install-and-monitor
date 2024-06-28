@@ -1,0 +1,32 @@
+#!/bin/sh
+
+set -e
+
+if [ "$1" = '' ]; then
+  >&2 printf 'usage: %s SOURCE_DIRECTORY\n' "$0"
+  exit 1
+fi
+
+dir=$1
+
+printf 'Copying uf2 file to Pico mass storage device.\n'
+# This might be Ubuntu or Debian specific.
+cp "$dir/build-bin/co2.uf2" /media/david/RPI-RP2/
+
+printf 'Waiting for /dev/ttyACM0 '
+while ! [ -e /dev/ttyACM0 ]; do
+  sleep 0.25
+  printf '.'
+done
+printf '\n'
+
+absolute_path() {
+  # I'm a fan of this trick.
+  # https://stackoverflow.com/a/21188136
+  echo "$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+}
+
+# so that the screenlog.* file ends up in the same directory as the source
+bin=$(absolute_path "$(dirname "$0")")
+cd "$dir" 
+"$bin/monitor"
