@@ -27,17 +27,12 @@ int main(void) {
       return -1;
   }
 
-  for (int i = 1; i <= 10; ++i) {
-      printf("%d: Hello! I'm going to sleep for two seconds, ten times.\n", i);
-      pulse_led(1000);
-      sleep_ms(1000);
-  }
-
   const uint i2c_sda_pin = 12;
   const uint i2c_scl_pin = 13;
   const uint desired_baudrate = 200 * 1000;
   const uint actual_baudrate = i2c_init(i2c0, desired_baudrate);
-  printf("Actual I2C bus baudrate is %u\n", actual_baudrate);
+  (void)actual_baudrate;
+  // printf("Actual I2C bus baudrate is %u\n", actual_baudrate);
   gpio_set_function(i2c_sda_pin, GPIO_FUNC_I2C);
   gpio_set_function(i2c_scl_pin, GPIO_FUNC_I2C);
   gpio_pull_up(i2c_sda_pin);
@@ -45,6 +40,12 @@ int main(void) {
   // Make the I2C pins available to picotool
   bi_decl(bi_2pins_with_func(i2c_sda_pin, i2c_scl_pin, GPIO_FUNC_I2C));
   
+  for (int i = 1; i <= 5; ++i) {
+      printf("%d: Hello! I'm going to sleep for two seconds, five times.\n", i);
+      pulse_led(1000);
+      sleep_ms(1000);
+  }
+
   printf("\nI2C Bus Scan\n");
   printf("   0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F\n");
 
@@ -70,3 +71,47 @@ int main(void) {
   }
   printf("\n\nAll done.\n");
 }
+
+/*
+The micropython scan code using a length-zero write, as opposed to a length-one read.
+Problem is, the pico's I2C hardware apparently doesn't allow length-zero writes.
+So, it's done in software.
+I'll give up on this for now.
+
+// return value:
+//  >=0 - success; for read it's 0, for write it's number of acks received
+//   <0 - error, with errno being the negative of the return value
+int mp_machine_soft_i2c_transfer(mp_obj_base_t *self_in, uint16_t addr, size_t n, mp_machine_i2c_buf_t *bufs, unsigned int flags) {
+    machine_i2c_obj_t *self = (machine_i2c_obj_t *)self_in;
+
+    // start the I2C transaction
+    int ret = mp_hal_i2c_start(self);
+    if (ret != 0) {
+        return ret;
+    }
+
+    // write the slave address
+    ret = mp_hal_i2c_write_byte(self, (addr << 1) | (flags & MP_MACHINE_I2C_FLAG_READ));
+    if (ret < 0) {
+        return ret;
+    } else if (ret != 0) {
+        // nack received, release the bus cleanly
+        mp_hal_i2c_stop(self);
+        return -MP_ENODEV;
+    }
+
+    int transfer_ret = 0;
+    // REDACTED (because n is 0)
+
+    // finish the I2C transaction
+    if (flags & MP_MACHINE_I2C_FLAG_STOP) {
+        ret = mp_hal_i2c_stop(self);
+        if (ret != 0) {
+            return ret;
+        }
+    }
+
+    return transfer_ret;
+}
+
+*/

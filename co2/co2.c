@@ -30,8 +30,8 @@ int main(void) {
         return -1;
     }
 
-    for (int i = 1; i <= 10; ++i) {
-        printf("%d: Hello! I'm going to sleep for two seconds, ten times.\n", i);
+    for (int i = 1; i <= 5; ++i) {
+        printf("%d: Hello! I'm going to sleep for two seconds, five times.\n", i);
         pulse_led(1000);
         sleep_ms(1000);
     }
