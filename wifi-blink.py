@@ -7,13 +7,13 @@ import time
 import picozero
 import secrets
 
-onboard_led = machine.Pin("LED", machine.Pin.OUT)
-gpio_led = picozero.LED(13)
+# onboard_led = machine.Pin("LED", machine.Pin.OUT)
+gpio_led = picozero.LED(2)
 timer = machine.Timer()
 
-def timer_callback(timer):
-    onboard_led.toggle()
-    gpio_led.toggle()
+# def timer_callback(timer):
+#     onboard_led.toggle()
+#     gpio_led.toggle()
 
 def wifi_connect(SSID, password):
     wlan = network.WLAN(network.STA_IF)
