@@ -10,13 +10,12 @@ import time
 
 i2c = machine.I2C(
     id=0, # Which IC2 bus, e.g. 0 for I2C0, 1 for I2C1
-    sda=machine.Pin(12),
-    scl=machine.Pin(13),
+    sda=machine.Pin(12), # GPIO pin number
+    scl=machine.Pin(13), # GPIO pin number
     freq=400_000,
-    # freq=200_000,
     timeout=50_000)
-    # timeout=500_000)
  
+
 print('Scanning i2c bus...')
 devices = i2c.scan()
 print('Devices:', [hex(device_id) for device_id in devices])
@@ -26,7 +25,7 @@ adaptor = I2cAdapter(i2c)
 sen = scd4x_sensirion.SCD4xSensirion(adaptor)
 
 # This section all works. You can loop it as many times as you like.
-for _ in range(3):
+for _ in range(1):
     # sid = sen.get_id()
     # print(f"Sensor id 3 x Word: {sid[0]:x}:{sid[1]:x}:{sid[2]:x}")
     # t_offs = sen.get_temperature_offset()
@@ -87,7 +86,7 @@ if True:
     sen.set_measurement(start=True)
 
     def check():
-        print('Checking if measurement data is ready.')
+        # print('Checking if measurement data is ready.')
         try:
             return sen.is_data_ready()
         except Exception as err:
@@ -101,24 +100,28 @@ if True:
             # print(f'sleeping for {seconds} seconds')
             # time.sleep(seconds)
             # 3:
+            print('Waiting for sensor data to be ready', end='')
             while not check():
-               # 4:
-               seconds = 1
-               print(f'Data is not ready or an error occurred. Sleeping for {seconds} seconds')
-               picozero.pico_led.on()
-               time.sleep(seconds / 2)
-               picozero.pico_led.off()
-               time.sleep(seconds / 2)
+              seconds = 1
+              picozero.pico_led.on()
+              time.sleep(seconds / 2)
+              picozero.pico_led.off()
+              time.sleep(seconds / 2)
+              print('.', end='')
+            print('') # for the newline
             # 5:
-            print('Reading measurement data')
             co2, t, rh = sen.get_meas_data()
             print(f"CO2 [ppm]: {co2}; T [°C]: {t}; RH [%]: {rh}")
-            sys.exit() # TODO
         except Exception as err:
             sys.print_exception(err)
 
 # TODO: I disabled the rest of the module author's example code.
 sys.exit()
+
+# =========================================================
+# =========================================================
+# =========================================================
+# =========================================================
 
 repeat = 5
 multiplier = 2
