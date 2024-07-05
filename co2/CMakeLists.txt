@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.12)
 
 set(PICO_BOARD "pico_w" CACHE STRING "The particular Raspberry Pi Pico board" FORCE) 
-set(PICO_SDK_PATH "/home/david/src/pico-sdk" CACHE PATH "Path to the Raspberry Pi Pico SDK" FORCE)
+set(PICO_SDK_PATH "$ENV{HOME}/src/pico-sdk" CACHE PATH "Path to the Raspberry Pi Pico SDK" FORCE)
 
 include(${PICO_SDK_PATH}/pico_sdk_init.cmake)
 
@@ -15,8 +15,8 @@ pico_sdk_init()
 add_compile_options(-Wall -Werror)
 
 add_executable(co2
-        # co2.c
-        sweep.c
+        co2.cpp
+        # sweep.c
         ../embedded-i2c-scd4x/sensirion_i2c.c
         ../embedded-i2c-scd4x/sensirion_common.c
         ../embedded-i2c-scd4x/scd4x_i2c.c
