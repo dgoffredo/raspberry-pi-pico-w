@@ -7,12 +7,17 @@ if [ "$1" = '' ]; then
   exit 1
 fi
 
-src=$1
+src=${1%/}
 out="$src/build-bin"
 
 if [ "$1" = 'clean' ]; then
   rm -rf "$out"
   exit
+fi
+
+if ! [ -d "$src" ]; then
+  >&2 printf "Directory \"%s\" doesn't exist.\n" "$src"
+  exit 2
 fi
 
 mkdir -p "$out"

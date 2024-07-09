@@ -7,7 +7,7 @@ if [ "$1" = '' ]; then
   exit 1
 fi
 
-dir=$1
+dir=${1%/}
 
 # This path might be Ubuntu or Debian specific.
 pico="/media/$USER/RPI-RP2/"
