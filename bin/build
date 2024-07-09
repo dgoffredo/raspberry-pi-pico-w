@@ -19,5 +19,5 @@ mkdir -p "$out"
 
 cd "$out"
 cmake ..
-make -j "$(nproc)" # VERBOSE=1
+make -j "$(nproc)" VERBOSE=1
 printf '\nBuild exited with status %s\n' "$?"

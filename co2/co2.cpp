@@ -28,7 +28,8 @@ int main() {
     }
 
     // Wait for the host to attach to the USB terminal (i.e. ttyACM0).
-    while (!tud_cdc_connected()) {
+    // Give up after 10 seconds.
+    for (int i = 0; i < 10 && !tud_cdc_connected(); ++i) {
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
         sleep_ms(500);
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);

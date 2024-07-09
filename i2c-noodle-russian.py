@@ -26,21 +26,21 @@ sen = scd4x_sensirion.SCD4xSensirion(adaptor)
 
 # This section all works. You can loop it as many times as you like.
 for _ in range(1):
-    # sid = sen.get_id()
-    # print(f"Sensor id 3 x Word: {sid[0]:x}:{sid[1]:x}:{sid[2]:x}")
-    # t_offs = sen.get_temperature_offset()
-    # print(f"Get temperature offset from sensor: {t_offs} Celsius")
-    # masl = sen.get_altitude()
-    # print(f"Get M.A.S.L. from sensor: {masl} meter")
+    sid = sen.get_id()
+    print(f"Sensor id 3 x Word: {sid[0]:x}:{sid[1]:x}:{sid[2]:x}")
+    t_offs = sen.get_temperature_offset()
+    print(f"Get temperature offset from sensor: {t_offs} Celsius")
+    masl = sen.get_altitude()
+    print(f"Get M.A.S.L. from sensor: {masl} meter")
     if sen.is_data_ready():
         print("Measurement data can be read")  # Данные измерений могут быть прочитаны!
     else:
         print("Measurement data is not ready")
 
-    # if sen.is_auto_calibration():
-    #    print("The automatic self-calibration is ON")
-    # else:
-    #    print("The automatic self-calibration is OFF")
+    if sen.is_auto_calibration():
+       print("The automatic self-calibration is ON")
+    else:
+       print("The automatic self-calibration is OFF")
 
 # TODO: Reading the response after sending a self-test command fails with EIO on read.
 if False:

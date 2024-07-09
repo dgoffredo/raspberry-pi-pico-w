@@ -24,6 +24,6 @@ namespace picoro {
 // ######b._         Y            _.d#########              
 // ##########b._     |        _.d#############              
 //
-//                                        --- Steven J. Simmons
+//                     --- Steven J. Simmons
 
 }  // namespace picoro
