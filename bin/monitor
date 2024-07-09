@@ -1,3 +1,27 @@
 #!/bin/sh
 
-screen -R -D -S pico -q -L /dev/ttyACM0
+set -e
+
+if [ "$1" = '' ]; then
+  >&2 printf 'usage: %s SOURCE_DIRECTORY\n' "$0"
+  exit 1
+fi
+
+dir=$1
+
+get_device() {
+  find /dev -name 'ttyACM*' | LC_ALL=C sort -r | head -1
+}
+
+printf 'Waiting for /dev/ttyACM* '
+while [ "$(get_device)" = '' ]; do
+  sleep 0.25
+  printf '.'
+done
+printf '\n'
+
+# so that the screenlog.* file ends up in the same directory as the source
+cd "$dir" 
+device=$(get_device)
+printf 'Attaching to %s\n' "$device"
+screen -R -D -S pico -q -L "$device"

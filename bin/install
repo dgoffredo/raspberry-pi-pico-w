@@ -1,0 +1,21 @@
+#!/bin/sh
+
+set -e
+
+if [ "$1" = '' ]; then
+  >&2 printf 'usage: %s SOURCE_DIRECTORY\n' "$0"
+  exit 1
+fi
+
+dir=$1
+
+# This path might be Ubuntu or Debian specific.
+pico="/media/$USER/RPI-RP2/"
+if ! [ -e "$pico" ]; then
+  >&2 printf 'Error: The expected mass storage location %s was not found.\n' "$pico"
+  >&2 printf 'Is the Pico in boot select mode?\n'
+  exit 2
+fi
+
+printf 'Copying uf2 file to Pico mass storage device.\n'
+cp "$dir/build-bin/$dir.uf2" "$pico"

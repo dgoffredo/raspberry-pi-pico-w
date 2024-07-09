@@ -7,33 +7,7 @@ if [ "$1" = '' ]; then
   exit 1
 fi
 
-dir=$1
+bin=$(dirname "$0")
 
-# This path might be Ubuntu or Debian specific.
-pico="/media/$USER/RPI-RP2/"
-if ! [ -e "$pico" ]; then
-  >&2 printf 'Error: The expected mass storage location %s was not found.\n' "$pico"
-  >&2 printf 'Is the Pico in boot select mode?\n'
-  exit 2
-fi
-
-printf 'Copying uf2 file to Pico mass storage device.\n'
-cp "$dir/build-bin/co2.uf2" "$pico"
-
-printf 'Waiting for /dev/ttyACM0 '
-while ! [ -e /dev/ttyACM0 ]; do
-  sleep 0.25
-  printf '.'
-done
-printf '\n'
-
-absolute_path() {
-  # I'm a fan of this trick.
-  # https://stackoverflow.com/a/21188136
-  echo "$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
-}
-
-# so that the screenlog.* file ends up in the same directory as the source
-bin=$(absolute_path "$(dirname "$0")")
-cd "$dir" 
-"$bin/monitor"
+"$bin/install" "$@"
+"$bin/monitor" "$@"
