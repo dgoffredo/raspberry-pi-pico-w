@@ -26,7 +26,7 @@ target_link_libraries(coroutines
         pico_stdlib
         # we need wifi in order to access the GPIO for the built-in LED
         pico_cyw43_arch_none
-        # hardware_i2c
+        hardware_i2c
         pico_async_context_poll
         )
 

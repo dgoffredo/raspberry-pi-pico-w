@@ -9,6 +9,7 @@
 #include <string>
 
 #include "picoro.h"
+#include "scd4x.h" // TODO
 
 // Wait for the host to attach to the USB terminal (i.e. ttyACM0).
 // Blink the onboard LED while we're waiting.
