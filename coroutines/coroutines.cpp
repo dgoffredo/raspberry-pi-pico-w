@@ -6,15 +6,14 @@
 
 #include <stdio.h>
 #include <chrono>
+#include <string>
 
 #include "picoro.h"
-
-#define CHECKPOINT() printf("[%s:%d]\n", __FILE__, __LINE__)
 
 // Wait for the host to attach to the USB terminal (i.e. ttyACM0).
 // Blink the onboard LED while we're waiting.
 // Give up after the specified number of seconds.
-picoro::Coroutine wait_for_usb_debug_attach(async_context_t *context, std::chrono::seconds timeout) {
+picoro::Coroutine<void> wait_for_usb_debug_attach(async_context_t *context, std::chrono::seconds timeout) {
     const int iterations = timeout / std::chrono::seconds(1);
     for (int i = 0; i < iterations && !tud_cdc_connected(); ++i) {
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
@@ -27,14 +26,23 @@ picoro::Coroutine wait_for_usb_debug_attach(async_context_t *context, std::chron
     printf("Glad you could make it.\n");
 }
 
-picoro::Coroutine do_loopy_thing(async_context_t *context) {
-    for (int i = 0; ; ++i) {
-        printf("coroutine tick %d\n", i);
-        co_await picoro::sleep_for(context, std::chrono::seconds(2));
+picoro::Coroutine<int> increment_slowly(async_context_t *context, int i) {
+    co_await picoro::sleep_for(context, std::chrono::seconds(1));
+    co_return i + 1;
+}
+
+picoro::Coroutine<std::string> message() {
+    co_return "coroutine tick";
+}
+
+picoro::Coroutine<void> do_loopy_thing(async_context_t *context) {
+    for (int i = 0; ; i = co_await increment_slowly(context, i)) {
+        printf("%s %d\n", (co_await message()).c_str(), i);
+        co_await picoro::sleep_for(context, std::chrono::seconds(1));
     }
 }
 
-picoro::Coroutine coroutine_main(async_context_t *context) {
+picoro::Coroutine<void> coroutine_main(async_context_t *context) {
     co_await wait_for_usb_debug_attach(context, std::chrono::seconds(10));
     co_await do_loopy_thing(context);
 }

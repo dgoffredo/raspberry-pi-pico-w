@@ -2,8 +2,10 @@
 
 #include <chrono>
 #include <coroutine>
+#include <cstddef>
 #include <cstdlib>
 #include <memory>
+#include <new>
 #include <utility>
 
 #include "pico/async_context.h"
@@ -52,42 +54,7 @@ class ScheduledContinuation {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-class Coroutine {
- public:
-  class Awaiter;
-  class FinalAwaitable;
-  class Promise;
-  struct Deleter {
-    void operator()(Coroutine::Promise *promise) {
-      std::coroutine_handle<Promise>::from_promise(*promise).destroy();
-    }
-  };
-
-  using promise_type = Promise; // required by the C++ coroutine protocol
-  using UniqueHandle= std::unique_ptr<Promise, Deleter>;
-
- private:
-  UniqueHandle promise_;
-  
- public:
-  explicit Coroutine(UniqueHandle promise);
-
-  Coroutine(Coroutine&&) = default;
-
-  Coroutine() = delete;
-  Coroutine(const Coroutine&) = delete;
-
-  Awaiter operator co_await();
-};
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
-template <typename... Coroutines>
-void run_event_loop(async_context_t *context, Coroutines... toplevel_coroutines);
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
-class Coroutine::FinalAwaitable {
+class FinalAwaitable {
   std::coroutine_handle<> coroutine_;
 
  public:
@@ -100,7 +67,87 @@ class Coroutine::FinalAwaitable {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-class Coroutine::Promise {
+template <typename Ret>
+class Awaiter;
+
+template <typename Ret>
+class Promise;
+
+template <typename Ret>
+class Coroutine {
+ public:
+  struct Deleter {
+    void operator()(Promise<Ret> *promise) {
+      std::coroutine_handle<Promise<Ret>>::from_promise(*promise).destroy();
+    }
+  };
+
+  using promise_type = Promise<Ret>; // required by the C++ coroutine protocol
+  using UniqueHandle = std::unique_ptr<Promise<Ret>, Deleter>;
+
+ private:
+  UniqueHandle promise_;
+  
+ public:
+  explicit Coroutine(UniqueHandle promise);
+
+  Coroutine(Coroutine&&) = default;
+
+  Coroutine() = delete;
+  Coroutine(const Coroutine&) = delete;
+
+  Awaiter<Ret> operator co_await();
+};
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+template <typename... Coroutines>
+void run_event_loop(async_context_t *context, Coroutines... toplevel_coroutines);
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+template <typename Ret>
+class Promise {
+  // `continuation_` is what runs after we're done.
+  // By default, it's a no-op handle, which means "nothing to do after."
+  // Sometimes, `Coroutine::Awaiter::await_suspend` will assign a non-no-op
+  // handle to `continuation_`.
+  // `continuation_` is passed to `FinalAwaitable` in `final_suspend`.
+  // `FinalAwaitable` will then return it in `FinalAwaitable::await_suspend`,
+  // which will cause it to be `.resume()`d.
+  std::coroutine_handle<> continuation_;
+  
+  // `value_` is where we store the `foo` from `co_return foo;`.
+  alignas(Ret) std::byte value_[sizeof(Ret)];
+
+  friend class Awaiter<Ret>;
+
+ public:
+  Promise();
+  Promise(const Promise&) = delete;
+  Promise(Promise&&) = delete;
+  ~Promise();
+
+  Coroutine<Ret> get_return_object();
+  std::suspend_never initial_suspend();
+  FinalAwaitable final_suspend() noexcept;
+  void return_value(Ret&&);
+
+  // If we `co_await` a `Sleep`, schedule ourselves as a continuation for when
+  // the sleep is done.
+  std::suspend_always await_transform(Sleep sleep);
+
+  // If we `co_await` a something else, just use the value as-is.
+  template <typename Object>
+  auto &&await_transform(Object &&) const noexcept;
+
+  void unhandled_exception();
+};
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+template <>
+class Promise<void> {
   // `continuation_` is what runs after we're done.
   // By default, it's a no-op handle, which means "nothing to do after."
   // Sometimes, `Coroutine::Awaiter::await_suspend` will assign a non-no-op
@@ -110,12 +157,14 @@ class Coroutine::Promise {
   // which will cause it to be `.resume()`d.
   std::coroutine_handle<> continuation_;
 
-  friend class Awaiter;
+  friend class Awaiter<void>;
 
  public:
   Promise();
+  Promise(const Promise&) = delete;
+  Promise(Promise&&) = delete;
 
-  Coroutine get_return_object();
+  Coroutine<void> get_return_object();
   std::suspend_never initial_suspend();
   FinalAwaitable final_suspend() noexcept;
   void return_void();
@@ -133,11 +182,26 @@ class Coroutine::Promise {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-class Coroutine::Awaiter {
-  Promise *promise_;
+template <typename Ret>
+class Awaiter {
+  Promise<Ret> *promise_;
 
  public:
-  explicit Awaiter(Promise *promise);
+  explicit Awaiter(Promise<Ret> *promise);
+
+  bool await_ready();
+  bool await_suspend(std::coroutine_handle<> continuation);
+  Ret await_resume();
+};
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+template <>
+class Awaiter<void> {
+  Promise<void> *promise_;
+
+ public:
+  explicit Awaiter(Promise<void> *promise);
 
   bool await_ready();
   bool await_suspend(std::coroutine_handle<> continuation);
@@ -176,94 +240,171 @@ void ScheduledContinuation::create_and_schedule(async_context_t *context, std::c
   assert(added);
 }
 
-// class Coroutine
-// ---------------
+// class Coroutine<Ret>
+// --------------------
+template <typename Ret>
 inline
-Coroutine::Coroutine(UniqueHandle promise)
+Coroutine<Ret>::Coroutine(UniqueHandle promise)
 : promise_(std::move(promise)) {}
 
+template <typename Ret>
 inline
-Coroutine::Awaiter Coroutine::operator co_await() {
-  return Coroutine::Awaiter(promise_.get());
+Awaiter<Ret> Coroutine<Ret>::operator co_await() {
+  return Awaiter<Ret>(promise_.get());
 }
 
-// class Coroutine::FinalAwaitable
+// class FinalAwaitable
 // -------------------------------
 inline
-Coroutine::FinalAwaitable::FinalAwaitable(std::coroutine_handle<> coroutine)
+FinalAwaitable::FinalAwaitable(std::coroutine_handle<> coroutine)
 : coroutine_(coroutine) {}
 
 inline
-bool Coroutine::FinalAwaitable::await_ready() noexcept { return false; }
+bool FinalAwaitable::await_ready() noexcept { return false; }
 
 inline
-std::coroutine_handle<> Coroutine::FinalAwaitable::await_suspend(std::coroutine_handle<>) noexcept {
+std::coroutine_handle<> FinalAwaitable::await_suspend(std::coroutine_handle<>) noexcept {
   return coroutine_;
 }
 
 inline
-void Coroutine::FinalAwaitable::await_resume() noexcept {}
+void FinalAwaitable::await_resume() noexcept {}
 
-// class Coroutine::Promise
-// ------------------------
+// class Promise<Ret>
+// ------------------
+template <typename Ret>
+Promise<Ret>::Promise()
+: continuation_(std::noop_coroutine())
+{}
+
+template <typename Ret>
+Promise<Ret>::~Promise() {
+  Ret *value = std::launder(reinterpret_cast<Ret*>(&value_[0]));
+  value->~Ret();
+}
+
+template <typename Ret>
+Coroutine<Ret> Promise<Ret>::get_return_object() {
+  return Coroutine<Ret>(typename Coroutine<Ret>::UniqueHandle(this));
+}
+
+template <typename Ret>
+std::suspend_never Promise<Ret>::initial_suspend() {
+  return std::suspend_never();
+}
+
+template <typename Ret>
+FinalAwaitable Promise<Ret>::final_suspend() noexcept {
+  return FinalAwaitable(continuation_);
+}
+
+template <typename Ret>
+void Promise<Ret>::return_value(Ret&& value) {
+  new (&value_[0]) Ret(std::move(value));
+}
+
+template <typename Ret>
+std::suspend_always Promise<Ret>::await_transform(Sleep sleep) {
+  ScheduledContinuation::create_and_schedule(sleep.context, std::coroutine_handle<Promise<Ret>>::from_promise(*this), sleep.deadline);
+  return std::suspend_always();
+}
+
+template <typename Ret>
+template <typename Object>
+auto&& Promise<Ret>::await_transform(Object &&object) const noexcept {
+  return std::forward<Object>(object);
+}
+
+template <typename Ret>
+void Promise<Ret>::unhandled_exception() {
+  std::terminate();
+}
+
+// class Promise<void>
+// -------------------
 inline
-Coroutine::Promise::Promise()
+Promise<void>::Promise()
 : continuation_(std::noop_coroutine())
 {}
 
 inline
-Coroutine Coroutine::Promise::get_return_object() {
-  return Coroutine(UniqueHandle(this));
+Coroutine<void> Promise<void>::get_return_object() {
+  return Coroutine<void>(Coroutine<void>::UniqueHandle(this));
 }
 
 inline
-std::suspend_never Coroutine::Promise::initial_suspend() {
+std::suspend_never Promise<void>::initial_suspend() {
   return std::suspend_never();
 }
 
 inline
-Coroutine::FinalAwaitable Coroutine::Promise::final_suspend() noexcept {
+FinalAwaitable Promise<void>::final_suspend() noexcept {
   return FinalAwaitable(continuation_);
 }
 
 inline
-void Coroutine::Promise::return_void() {}
+void Promise<void>::return_void() {}
 
 inline
-std::suspend_always Coroutine::Promise::await_transform(Sleep sleep) {
-  ScheduledContinuation::create_and_schedule(sleep.context, std::coroutine_handle<Promise>::from_promise(*this), sleep.deadline);
+std::suspend_always Promise<void>::await_transform(Sleep sleep) {
+  ScheduledContinuation::create_and_schedule(sleep.context, std::coroutine_handle<Promise<void>>::from_promise(*this), sleep.deadline);
   return std::suspend_always();
 }
 
 template <typename Object>
-auto&& Coroutine::Promise::await_transform(Object &&object) const noexcept {
+auto&& Promise<void>::await_transform(Object &&object) const noexcept {
   return std::forward<Object>(object);
 }
 
 inline
-void Coroutine::Promise::unhandled_exception() {
+void Promise<void>::unhandled_exception() {
   std::terminate();
 }
 
-// class Coroutine::Awaiter
-// ------------------------
+// class Awaiter<Ret>
+// ------------------
+template <typename Ret>
+Awaiter<Ret>::Awaiter(Promise<Ret> *promise)
+: promise_(promise) {}
+
+template <typename Ret>
+bool Awaiter<Ret>::await_ready() {
+  auto handle = std::coroutine_handle<Promise<Ret>>::from_promise(*promise_);
+  return handle.done();
+}
+
+template <typename Ret>
+bool Awaiter<Ret>::await_suspend(std::coroutine_handle<> continuation) {
+  promise_->continuation_ = continuation;
+  return true;
+}
+
+template <typename Ret>
+Ret Awaiter<Ret>::await_resume() {
+  Ret *value = std::launder(reinterpret_cast<Ret*>(&promise_->value_[0]));
+  return std::move(*value);
+}
+
+// class Awaiter<void>
+// -------------------
 inline
-Coroutine::Awaiter::Awaiter(Promise *promise)
+Awaiter<void>::Awaiter(Promise<void> *promise)
 : promise_(promise) {}
 
 inline
-bool Coroutine::Awaiter::await_ready() {
-  return false;
+bool Awaiter<void>::await_ready() {
+  auto handle = std::coroutine_handle<Promise<void>>::from_promise(*promise_);
+  return handle.done();
 }
 
 inline
-bool Coroutine::Awaiter::await_suspend(std::coroutine_handle<> continuation) {
+bool Awaiter<void>::await_suspend(std::coroutine_handle<> continuation) {
   promise_->continuation_ = continuation;
   return true;
 }
 
 inline
-void Coroutine::Awaiter::await_resume() {}
+void Awaiter<void>::await_resume() {}
 
 // void run_event_loop
 // -------------------
