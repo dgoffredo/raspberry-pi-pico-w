@@ -45,6 +45,8 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+#include <chrono>
+
 #include <hardware/i2c.h>
 
 #include "picoro.h"
@@ -149,34 +151,39 @@ constexpr unsigned COMMAND_SIZE = 2;
 constexpr unsigned WORD_SIZE = 2;
 constexpr unsigned MAX_BUFFER_WORDS = 32;
 
-constexpr unsigned READ_TIMEOUT_μS = 1000;
-constexpr unsigned WRITE_TIMEOUT_μS = 1000;
+struct Device  {
+  i2c_inst_t *instance = i2c0;
+  uint8_t address = 0x62;
+  std::chrono::microseconds read_timeout = std::chrono::microseconds(1000);
+  std::chrono::microseconds write_timeout = std::chrono::microseconds(1000);
+  
+  /**
+   * Execute one read transaction on the I2C bus, reading a given number of bytes.
+   * If the device does not acknowledge the read command, return an error.
+   *
+   * @param data    pointer to the buffer where the data is to be stored
+   * @param count   number of bytes to read from I2C and store in the buffer
+   * @returns 0 on success, error code otherwise
+   */
+  int8_t read(uint8_t* data, uint16_t count) const;
 
-/**
- * Sleep for a given number of microseconds. The function should delay the
- * execution for at least the given time, but may also sleep longer.
- *
- * Despite the unit, a <10 millisecond precision is sufficient.
- *
- * @param useconds the sleep time in microseconds
- */
-void hal_sleep_usec(uint32_t useconds) {
-    sleep_us(useconds / 1000);
-}
+  /**
+   * Execute one write transaction on the I2C bus, sending a given number of
+   * bytes. The bytes in the supplied buffer must be sent to the given address. If
+   * the slave device does not acknowledge any of the bytes, return an error.
+   *
+   * @param data    pointer to the buffer containing the data to write
+   * @param count   number of bytes to read from the buffer and send over I2C
+   * @returns 0 on success, error code otherwise
+   */
+  int8_t write(const uint8_t* data, uint16_t count) const;
+};
 
-/**
- * Execute one read transaction on the I2C bus, reading a given number of bytes.
- * If the device does not acknowledge the read command, an error shall be
- * returned.
- *
- * @param address 7-bit I2C address to read from
- * @param data    pointer to the buffer where the data is to be stored
- * @param count   number of bytes to read from I2C and store in the buffer
- * @returns 0 on success, error code otherwise
- */
-int8_t hal_read(uint8_t address, uint8_t* data, uint16_t count) {
+inline
+int8_t Device::read(uint8_t* data, uint16_t count) const {
   const bool nostop = true; // master retains control of the bus after the read
-  const int rc = i2c_read_timeout_us(i2c0 /* TODO */, address, data, count, nostop, READ_TIMEOUT_μS);
+  const unsigned timeout_μs = read_timeout / std::chrono::microseconds(1);
+  const int rc = i2c_read_timeout_us(instance, address, data, count, nostop, timeout_μs);
   switch (rc) {
   case PICO_ERROR_GENERIC: // address not acknowledged
   case PICO_ERROR_TIMEOUT: // device didn't respond in time
@@ -191,21 +198,11 @@ int8_t hal_read(uint8_t address, uint8_t* data, uint16_t count) {
   }
 }
 
-/**
- * Execute one write transaction on the I2C bus, sending a given number of
- * bytes. The bytes in the supplied buffer must be sent to the given address. If
- * the slave device does not acknowledge any of the bytes, an error shall be
- * returned.
- *
- * @param address 7-bit I2C address to write to
- * @param data    pointer to the buffer containing the data to write
- * @param count   number of bytes to read from the buffer and send over I2C
- * @returns 0 on success, error code otherwise
- */
-int8_t hal_write(uint8_t address, const uint8_t* data,
-                               uint16_t count) {
+inline
+int8_t Device::write(const uint8_t* data, uint16_t count) const {
   const bool nostop = true; // master retains control of the bus after the write
-  const int rc = i2c_write_timeout_us(i2c0 /* TODO */, address, data, count, nostop, WRITE_TIMEOUT_μS);
+  const unsigned timeout_μs = write_timeout / std::chrono::microseconds(1);
+  const int rc = i2c_write_timeout_us(instance, address, data, count, nostop, timeout_μs);
   switch (rc) {
   case PICO_ERROR_GENERIC: // address not acknowledged
   case PICO_ERROR_TIMEOUT: // device didn't respond in time
@@ -218,6 +215,18 @@ int8_t hal_write(uint8_t address, const uint8_t* data,
     }
     return PICO_ERROR_IO;
   }
+}
+
+/**
+ * Sleep for a given number of microseconds. The function should delay the
+ * execution for at least the given time, but may also sleep longer.
+ *
+ * Despite the unit, a <10 millisecond precision is sufficient.
+ *
+ * @param useconds the sleep time in microseconds
+ */
+void hal_sleep_usec(uint32_t useconds) {
+    sleep_us(useconds);
 }
 
 inline
@@ -269,7 +278,7 @@ uint16_t fill_cmd_send_buf(uint8_t* buf, uint16_t cmd,
 }
 
 inline
-int16_t read_words_as_bytes(uint8_t address, uint8_t* data,
+int16_t read_words_as_bytes(const Device& device, uint8_t* data,
                                           uint16_t num_words) {
     int16_t ret;
     uint16_t i, j;
@@ -277,7 +286,7 @@ int16_t read_words_as_bytes(uint8_t address, uint8_t* data,
     uint16_t word_buf[MAX_BUFFER_WORDS];
     uint8_t* const buf8 = (uint8_t*)word_buf;
 
-    ret = hal_read(address, buf8, size);
+    ret = device.read(buf8, size);
     if (ret != NO_ERROR)
         return ret;
 
@@ -297,12 +306,12 @@ int16_t read_words_as_bytes(uint8_t address, uint8_t* data,
 }
 
 inline
-int16_t read_words(uint8_t address, uint16_t* data_words,
+int16_t read_words(const Device& device, uint16_t* data_words,
                                  uint16_t num_words) {
     int16_t ret;
     uint8_t i;
 
-    ret = read_words_as_bytes(address, (uint8_t*)data_words,
+    ret = read_words_as_bytes(device, (uint8_t*)data_words,
                                             num_words);
     if (ret != NO_ERROR)
         return ret;
@@ -316,15 +325,15 @@ int16_t read_words(uint8_t address, uint16_t* data_words,
 }
 
 inline
-int16_t write_cmd(uint8_t address, uint16_t command) {
+int16_t write_cmd(const Device& device, uint16_t command) {
     uint8_t buf[COMMAND_SIZE];
 
     fill_cmd_send_buf(buf, command, NULL, 0);
-    return hal_write(address, buf, COMMAND_SIZE);
+    return device.write(buf, COMMAND_SIZE);
 }
 
 inline
-int16_t write_cmd_with_args(uint8_t address, uint16_t command,
+int16_t write_cmd_with_args(const Device& device, uint16_t command,
                                           const uint16_t* data_words,
                                           uint16_t num_words) {
     uint8_t buf[MAX_BUFFER_WORDS];
@@ -332,22 +341,22 @@ int16_t write_cmd_with_args(uint8_t address, uint16_t command,
 
     buf_size =
         fill_cmd_send_buf(buf, command, data_words, num_words);
-    return hal_write(address, buf, buf_size);
+    return device.write(buf, buf_size);
 }
 
 inline
-int16_t read_cmd(uint8_t address, uint16_t cmd,
+int16_t read_cmd(const Device& device, uint16_t cmd,
                  uint16_t* data_words,
                  uint16_t num_words) {
     int16_t ret;
     uint8_t buf[COMMAND_SIZE];
 
     fill_cmd_send_buf(buf, cmd, NULL, 0);
-    ret = hal_write(address, buf, COMMAND_SIZE);
+    ret = device.write(buf, COMMAND_SIZE);
     if (ret != NO_ERROR)
         return ret;
 
-    return read_words(address, data_words, num_words);
+    return read_words(device, data_words, num_words);
 }
 
 inline
@@ -446,13 +455,13 @@ uint16_t add_bytes_to_buffer(uint8_t* buffer, uint16_t offset,
 }
 
 inline
-int16_t write_data(uint8_t address, const uint8_t* data,
+int16_t write_data(const Device& device, const uint8_t* data,
                                  uint16_t data_length) {
-    return hal_write(address, data, data_length);
+    return device.write(data, data_length);
 }
 
 inline
-int16_t read_data_inplace(uint8_t address, uint8_t* buffer,
+int16_t read_data_inplace(const Device& device, uint8_t* buffer,
                                         uint16_t expected_data_length) {
     int16_t error;
     uint16_t i, j;
@@ -463,7 +472,7 @@ int16_t read_data_inplace(uint8_t address, uint8_t* buffer,
         return BYTE_NUM_ERROR;
     }
 
-    error = hal_read(address, buffer, size);
+    error = device.read(buffer, size);
     if (error) {
         return error;
     }
@@ -486,16 +495,44 @@ int16_t read_data_inplace(uint8_t address, uint8_t* buffer,
 
 namespace scd4x {
 
-constexpr uint8_t I2C_ADDRESS = 0x62;
+class SCD4x {
+  i2c::Device device;
+
+  int16_t start_periodic_measurement();
+  int16_t read_measurement_ticks(uint16_t* co2, uint16_t* temperature, uint16_t* humidity);
+  int16_t read_measurement(uint16_t* co2, int32_t* temperature_m_deg_c, int32_t* humidity_m_percent_rh);
+  int16_t stop_periodic_measurement();
+  int16_t get_temperature_offset_ticks(uint16_t* t_offset);
+  int16_t get_temperature_offset(int32_t* t_offset_m_deg_c);
+  int16_t set_temperature_offset_ticks(uint16_t t_offset);
+  int16_t set_temperature_offset(int32_t t_offset_m_deg_c);
+  int16_t get_sensor_altitude(uint16_t* sensor_altitude);
+  int16_t set_sensor_altitude(uint16_t sensor_altitude);
+  int16_t set_ambient_pressure(uint16_t ambient_pressure);
+  int16_t perform_forced_recalibration(uint16_t target_co2_concentration, uint16_t* frc_correction);
+  int16_t get_automatic_self_calibration(uint16_t* asc_enabled);
+  int16_t set_automatic_self_calibration(uint16_t asc_enabled);
+  int16_t start_low_power_periodic_measurement();
+  int16_t get_data_ready_flag(bool* data_ready_flag);
+  int16_t persist_settings();
+  int16_t get_serial_number(uint16_t* serial_0, uint16_t* serial_1, uint16_t* serial_2);
+  int16_t perform_self_test(uint16_t* sensor_status);
+  int16_t perform_factory_reset();
+  int16_t reinit();
+  int16_t measure_single_shot();
+  int16_t measure_single_shot_rht_only();
+  int16_t power_down();
+  int16_t wake_up();
+};
 
 inline
-int16_t start_periodic_measurement() {
+int16_t SCD4x::start_periodic_measurement() {
     int16_t error;
     uint8_t buffer[2];
     uint16_t offset = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0x21B1);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
@@ -504,21 +541,21 @@ int16_t start_periodic_measurement() {
 }
 
 inline
-int16_t read_measurement_ticks(uint16_t* co2, uint16_t* temperature,
+int16_t SCD4x::read_measurement_ticks(uint16_t* co2, uint16_t* temperature,
                                      uint16_t* humidity) {
     int16_t error;
     uint8_t buffer[9];
     uint16_t offset = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0xEC05);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
 
     i2c::hal_sleep_usec(1000);
 
-    error = i2c::read_data_inplace(I2C_ADDRESS, &buffer[0], 6);
+    error = i2c::read_data_inplace(device, &buffer[0], 6);
     if (error) {
         return error;
     }
@@ -529,7 +566,7 @@ int16_t read_measurement_ticks(uint16_t* co2, uint16_t* temperature,
 }
 
 inline
-int16_t read_measurement(uint16_t* co2, int32_t* temperature_m_deg_c,
+int16_t SCD4x::read_measurement(uint16_t* co2, int32_t* temperature_m_deg_c,
                                int32_t* humidity_m_percent_rh) {
     int16_t error;
     uint16_t temperature;
@@ -545,13 +582,13 @@ int16_t read_measurement(uint16_t* co2, int32_t* temperature_m_deg_c,
 }
 
 inline
-int16_t stop_periodic_measurement() {
+int16_t SCD4x::stop_periodic_measurement() {
     int16_t error;
     uint8_t buffer[2];
     uint16_t offset = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0x3F86);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
@@ -560,20 +597,20 @@ int16_t stop_periodic_measurement() {
 }
 
 inline
-int16_t get_temperature_offset_ticks(uint16_t* t_offset) {
+int16_t SCD4x::get_temperature_offset_ticks(uint16_t* t_offset) {
     int16_t error;
     uint8_t buffer[3];
     uint16_t offset = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0x2318);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
 
     i2c::hal_sleep_usec(1000);
 
-    error = i2c::read_data_inplace(I2C_ADDRESS, &buffer[0], 2);
+    error = i2c::read_data_inplace(device, &buffer[0], 2);
     if (error) {
         return error;
     }
@@ -582,7 +619,7 @@ int16_t get_temperature_offset_ticks(uint16_t* t_offset) {
 }
 
 inline
-int16_t get_temperature_offset(int32_t* t_offset_m_deg_c) {
+int16_t SCD4x::get_temperature_offset(int32_t* t_offset_m_deg_c) {
     int16_t error;
     uint16_t t_offset;
 
@@ -595,7 +632,7 @@ int16_t get_temperature_offset(int32_t* t_offset_m_deg_c) {
 }
 
 inline
-int16_t set_temperature_offset_ticks(uint16_t t_offset) {
+int16_t SCD4x::set_temperature_offset_ticks(uint16_t t_offset) {
     int16_t error;
     uint8_t buffer[5];
     uint16_t offset = 0;
@@ -603,7 +640,7 @@ int16_t set_temperature_offset_ticks(uint16_t t_offset) {
 
     offset = i2c::add_uint16_t_to_buffer(&buffer[0], offset, t_offset);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
@@ -612,26 +649,26 @@ int16_t set_temperature_offset_ticks(uint16_t t_offset) {
 }
 
 inline
-int16_t set_temperature_offset(int32_t t_offset_m_deg_c) {
+int16_t SCD4x::set_temperature_offset(int32_t t_offset_m_deg_c) {
     uint16_t t_offset = (uint16_t)((t_offset_m_deg_c * 12271) >> 15);
     return set_temperature_offset_ticks(t_offset);
 }
 
 inline
-int16_t get_sensor_altitude(uint16_t* sensor_altitude) {
+int16_t SCD4x::get_sensor_altitude(uint16_t* sensor_altitude) {
     int16_t error;
     uint8_t buffer[3];
     uint16_t offset = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0x2322);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
 
     i2c::hal_sleep_usec(1000);
 
-    error = i2c::read_data_inplace(I2C_ADDRESS, &buffer[0], 2);
+    error = i2c::read_data_inplace(device, &buffer[0], 2);
     if (error) {
         return error;
     }
@@ -640,7 +677,7 @@ int16_t get_sensor_altitude(uint16_t* sensor_altitude) {
 }
 
 inline
-int16_t set_sensor_altitude(uint16_t sensor_altitude) {
+int16_t SCD4x::set_sensor_altitude(uint16_t sensor_altitude) {
     int16_t error;
     uint8_t buffer[5];
     uint16_t offset = 0;
@@ -649,7 +686,7 @@ int16_t set_sensor_altitude(uint16_t sensor_altitude) {
     offset = i2c::add_uint16_t_to_buffer(&buffer[0], offset,
                                                   sensor_altitude);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
@@ -658,7 +695,7 @@ int16_t set_sensor_altitude(uint16_t sensor_altitude) {
 }
 
 inline
-int16_t set_ambient_pressure(uint16_t ambient_pressure) {
+int16_t SCD4x::set_ambient_pressure(uint16_t ambient_pressure) {
     int16_t error;
     uint8_t buffer[5];
     uint16_t offset = 0;
@@ -667,7 +704,7 @@ int16_t set_ambient_pressure(uint16_t ambient_pressure) {
     offset = i2c::add_uint16_t_to_buffer(&buffer[0], offset,
                                                   ambient_pressure);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
@@ -676,7 +713,7 @@ int16_t set_ambient_pressure(uint16_t ambient_pressure) {
 }
 
 inline
-int16_t perform_forced_recalibration(uint16_t target_co2_concentration,
+int16_t SCD4x::perform_forced_recalibration(uint16_t target_co2_concentration,
                                            uint16_t* frc_correction) {
     int16_t error;
     uint8_t buffer[5];
@@ -686,14 +723,14 @@ int16_t perform_forced_recalibration(uint16_t target_co2_concentration,
     offset = i2c::add_uint16_t_to_buffer(&buffer[0], offset,
                                                   target_co2_concentration);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
 
     i2c::hal_sleep_usec(400000);
 
-    error = i2c::read_data_inplace(I2C_ADDRESS, &buffer[0], 2);
+    error = i2c::read_data_inplace(device, &buffer[0], 2);
     if (error) {
         return error;
     }
@@ -702,20 +739,20 @@ int16_t perform_forced_recalibration(uint16_t target_co2_concentration,
 }
 
 inline
-int16_t get_automatic_self_calibration(uint16_t* asc_enabled) {
+int16_t SCD4x::get_automatic_self_calibration(uint16_t* asc_enabled) {
     int16_t error;
     uint8_t buffer[3];
     uint16_t offset = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0x2313);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
 
     i2c::hal_sleep_usec(1000);
 
-    error = i2c::read_data_inplace(I2C_ADDRESS, &buffer[0], 2);
+    error = i2c::read_data_inplace(device, &buffer[0], 2);
     if (error) {
         return error;
     }
@@ -724,7 +761,7 @@ int16_t get_automatic_self_calibration(uint16_t* asc_enabled) {
 }
 
 inline
-int16_t set_automatic_self_calibration(uint16_t asc_enabled) {
+int16_t SCD4x::set_automatic_self_calibration(uint16_t asc_enabled) {
     int16_t error;
     uint8_t buffer[5];
     uint16_t offset = 0;
@@ -733,7 +770,7 @@ int16_t set_automatic_self_calibration(uint16_t asc_enabled) {
     offset =
         i2c::add_uint16_t_to_buffer(&buffer[0], offset, asc_enabled);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
@@ -742,30 +779,30 @@ int16_t set_automatic_self_calibration(uint16_t asc_enabled) {
 }
 
 inline
-int16_t start_low_power_periodic_measurement() {
+int16_t SCD4x::start_low_power_periodic_measurement() {
     uint8_t buffer[2];
     uint16_t offset = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0x21AC);
 
-    return i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    return i2c::write_data(device, &buffer[0], offset);
 }
 
 inline
-int16_t get_data_ready_flag(bool* data_ready_flag) {
+int16_t SCD4x::get_data_ready_flag(bool* data_ready_flag) {
     int16_t error;
     uint8_t buffer[3];
     uint16_t offset = 0;
     uint16_t local_data_ready = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0xE4B8);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
 
     i2c::hal_sleep_usec(1000);
 
-    error = i2c::read_data_inplace(I2C_ADDRESS, &buffer[0], 2);
+    error = i2c::read_data_inplace(device, &buffer[0], 2);
     if (error) {
         return error;
     }
@@ -775,13 +812,13 @@ int16_t get_data_ready_flag(bool* data_ready_flag) {
 }
 
 inline
-int16_t persist_settings() {
+int16_t SCD4x::persist_settings() {
     int16_t error;
     uint8_t buffer[2];
     uint16_t offset = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0x3615);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
@@ -790,21 +827,21 @@ int16_t persist_settings() {
 }
 
 inline
-int16_t get_serial_number(uint16_t* serial_0, uint16_t* serial_1,
+int16_t SCD4x::get_serial_number(uint16_t* serial_0, uint16_t* serial_1,
                                 uint16_t* serial_2) {
     int16_t error;
     uint8_t buffer[9];
     uint16_t offset = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0x3682);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
 
     i2c::hal_sleep_usec(1000);
 
-    error = i2c::read_data_inplace(I2C_ADDRESS, &buffer[0], 6);
+    error = i2c::read_data_inplace(device, &buffer[0], 6);
     if (error) {
         return error;
     }
@@ -815,20 +852,20 @@ int16_t get_serial_number(uint16_t* serial_0, uint16_t* serial_1,
 }
 
 inline
-int16_t perform_self_test(uint16_t* sensor_status) {
+int16_t SCD4x::perform_self_test(uint16_t* sensor_status) {
     int16_t error;
     uint8_t buffer[3];
     uint16_t offset = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0x3639);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
 
     i2c::hal_sleep_usec(10000000);
 
-    error = i2c::read_data_inplace(I2C_ADDRESS, &buffer[0], 2);
+    error = i2c::read_data_inplace(device, &buffer[0], 2);
     if (error) {
         return error;
     }
@@ -837,13 +874,13 @@ int16_t perform_self_test(uint16_t* sensor_status) {
 }
 
 inline
-int16_t perform_factory_reset() {
+int16_t SCD4x::perform_factory_reset() {
     int16_t error;
     uint8_t buffer[2];
     uint16_t offset = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0x3632);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
@@ -852,13 +889,13 @@ int16_t perform_factory_reset() {
 }
 
 inline
-int16_t reinit() {
+int16_t SCD4x::reinit() {
     int16_t error;
     uint8_t buffer[2];
     uint16_t offset = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0x3646);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
@@ -867,13 +904,13 @@ int16_t reinit() {
 }
 
 inline
-int16_t measure_single_shot() {
+int16_t SCD4x::measure_single_shot() {
     int16_t error;
     uint8_t buffer[2];
     uint16_t offset = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0x219D);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
@@ -882,13 +919,13 @@ int16_t measure_single_shot() {
 }
 
 inline
-int16_t measure_single_shot_rht_only() {
+int16_t SCD4x::measure_single_shot_rht_only() {
     int16_t error;
     uint8_t buffer[2];
     uint16_t offset = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0x2196);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
@@ -897,13 +934,13 @@ int16_t measure_single_shot_rht_only() {
 }
 
 inline
-int16_t power_down() {
+int16_t SCD4x::power_down() {
     int16_t error;
     uint8_t buffer[2];
     uint16_t offset = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0x36E0);
 
-    error = i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    error = i2c::write_data(device, &buffer[0], offset);
     if (error) {
         return error;
     }
@@ -912,13 +949,13 @@ int16_t power_down() {
 }
 
 inline
-int16_t wake_up() {
+int16_t SCD4x::wake_up() {
     uint8_t buffer[2];
     uint16_t offset = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0x36F6);
 
     // Sensor does not acknowledge the wake-up call, error is ignored
-    (void)i2c::write_data(I2C_ADDRESS, &buffer[0], offset);
+    (void)i2c::write_data(device, &buffer[0], offset);
     i2c::hal_sleep_usec(20000);
     return NO_ERROR;
 }
