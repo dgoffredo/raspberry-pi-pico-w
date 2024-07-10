@@ -17,5 +17,6 @@ if ! [ -e "$pico" ]; then
   exit 2
 fi
 
-printf 'Copying uf2 file to Pico mass storage device.\n'
-cp "$dir/build-bin/$dir.uf2" "$pico"
+uf2="$dir/build-bin/$dir.uf2"
+printf 'Copying %s to Pico mass storage device.\n' "$uf2"
+cp "$uf2" "$pico"
