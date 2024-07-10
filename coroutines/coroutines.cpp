@@ -85,13 +85,16 @@ picoro::Coroutine<void> monitor_scd4x(async_context_t *context) {
         if (rc) {
             printf("Unable to read sensor measurement. Error code %d.\n", rc);
         } else {
-            printf("CO2: %u ppm\ttemperature: ", (unsigned)co2_ppm);
+            printf("CO2: %hu ppm\ttemperature: ", co2_ppm);
             print_millis_as_decimal(temperature_millicelsius);
             printf(" C\thumidity: ");
             print_millis_as_decimal(relative_humidity_millipercent);
             printf("%%\n");
         }
-    } 
+    }
+
+    // unreachable
+    i2c_deinit(instance);
 }
 
 picoro::Coroutine<void> coroutine_main(async_context_t *context) {
