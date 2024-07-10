@@ -131,7 +131,8 @@ class Promise {
   Coroutine<Ret> get_return_object();
   std::suspend_never initial_suspend();
   FinalAwaitable final_suspend() noexcept;
-  void return_value(Ret&&);
+  template <typename Value>
+  void return_value(Value&&);
 
   // If we `co_await` a `Sleep`, schedule ourselves as a continuation for when
   // the sleep is done.
@@ -299,8 +300,9 @@ FinalAwaitable Promise<Ret>::final_suspend() noexcept {
 }
 
 template <typename Ret>
-void Promise<Ret>::return_value(Ret&& value) {
-  new (&value_[0]) Ret(std::move(value));
+template <typename Value>
+void Promise<Ret>::return_value(Value&& value) {
+  new (&value_[0]) Ret(std::forward<Value>(value));
 }
 
 template <typename Ret>
