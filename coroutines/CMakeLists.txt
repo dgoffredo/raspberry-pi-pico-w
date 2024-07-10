@@ -20,7 +20,8 @@ add_executable(coroutines
         )
 
 # Enable coroutines (GCC 10 requires a flag) and stricter warnings for our C++ code only.
-set_source_files_properties(coroutines.cpp picoro.h PROPERTIES COMPILE_OPTIONS -fcoroutines -Wextra -pedantic)
+set_source_files_properties(coroutines.cpp picoro.h scd4x.h
+        PROPERTIES COMPILE_OPTIONS -fcoroutines -Wextra -pedantic)
 
 target_link_libraries(coroutines
         pico_stdlib

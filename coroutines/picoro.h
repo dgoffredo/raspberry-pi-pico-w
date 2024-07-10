@@ -411,7 +411,10 @@ void Awaiter<void>::await_resume() {}
 // void run_event_loop
 // -------------------
 template <typename... Coroutines>
-void run_event_loop(async_context_t *context, Coroutines... toplevel_coroutines) {
+void run_event_loop(async_context_t *context, Coroutines...) {
+  // The `Coroutines...` don't need names.  `picoro::Coroutine` is eagerly
+  // started, so the `Coroutines...` parameters serve only to provide a place
+  // for those coroutine objects to live while the event loop runs.
   for (;;) {
     async_context_poll(context);
     async_context_wait_for_work_ms(context, 10 * 1000);

@@ -493,39 +493,38 @@ int16_t read_data_inplace(const Device& device, uint8_t* buffer,
 
 } // namespace i2c
 
-namespace scd4x {
-
 struct SCD4x {
   async_context_t *context;
   i2c::Device device;
 
   explicit SCD4x(async_context_t*);
+  SCD4x() = delete;
 
-  picoro::Coroutine<int16_t> start_periodic_measurement();
-  picoro::Coroutine<int16_t> read_measurement_ticks(uint16_t* co2, uint16_t* temperature, uint16_t* humidity);
-  picoro::Coroutine<int16_t> read_measurement(uint16_t* co2, int32_t* temperature_m_deg_c, int32_t* humidity_m_percent_rh);
-  picoro::Coroutine<int16_t> stop_periodic_measurement();
-  picoro::Coroutine<int16_t> get_temperature_offset_ticks(uint16_t* t_offset);
-  picoro::Coroutine<int16_t> get_temperature_offset(int32_t* t_offset_m_deg_c);
-  picoro::Coroutine<int16_t> set_temperature_offset_ticks(uint16_t t_offset);
-  picoro::Coroutine<int16_t> set_temperature_offset(int32_t t_offset_m_deg_c);
-  picoro::Coroutine<int16_t> get_sensor_altitude(uint16_t* sensor_altitude);
-  picoro::Coroutine<int16_t> set_sensor_altitude(uint16_t sensor_altitude);
-  picoro::Coroutine<int16_t> set_ambient_pressure(uint16_t ambient_pressure);
-  picoro::Coroutine<int16_t> perform_forced_recalibration(uint16_t target_co2_concentration, uint16_t* frc_correction);
-  picoro::Coroutine<int16_t> get_automatic_self_calibration(uint16_t* asc_enabled);
-  picoro::Coroutine<int16_t> set_automatic_self_calibration(uint16_t asc_enabled);
-  picoro::Coroutine<int16_t> start_low_power_periodic_measurement();
-  picoro::Coroutine<int16_t> get_data_ready_flag(bool* data_ready_flag);
-  picoro::Coroutine<int16_t> persist_settings();
-  picoro::Coroutine<int16_t> get_serial_number(uint16_t* serial_0, uint16_t* serial_1, uint16_t* serial_2);
-  picoro::Coroutine<int16_t> perform_self_test(uint16_t* sensor_status);
-  picoro::Coroutine<int16_t> perform_factory_reset();
-  picoro::Coroutine<int16_t> reinit();
-  picoro::Coroutine<int16_t> measure_single_shot();
-  picoro::Coroutine<int16_t> measure_single_shot_rht_only();
-  picoro::Coroutine<int16_t> power_down();
-  picoro::Coroutine<int16_t> wake_up();
+  picoro::Coroutine<int16_t> start_periodic_measurement() const;
+  picoro::Coroutine<int16_t> read_measurement_ticks(uint16_t* co2, uint16_t* temperature, uint16_t* humidity) const;
+  picoro::Coroutine<int16_t> read_measurement(uint16_t* co2, int32_t* temperature_m_deg_c, int32_t* humidity_m_percent_rh) const;
+  picoro::Coroutine<int16_t> stop_periodic_measurement() const;
+  picoro::Coroutine<int16_t> get_temperature_offset_ticks(uint16_t* t_offset) const;
+  picoro::Coroutine<int16_t> get_temperature_offset(int32_t* t_offset_m_deg_c) const;
+  picoro::Coroutine<int16_t> set_temperature_offset_ticks(uint16_t t_offset) const;
+  picoro::Coroutine<int16_t> set_temperature_offset(int32_t t_offset_m_deg_c) const;
+  picoro::Coroutine<int16_t> get_sensor_altitude(uint16_t* sensor_altitude) const;
+  picoro::Coroutine<int16_t> set_sensor_altitude(uint16_t sensor_altitude) const;
+  picoro::Coroutine<int16_t> set_ambient_pressure(uint16_t ambient_pressure) const;
+  picoro::Coroutine<int16_t> perform_forced_recalibration(uint16_t target_co2_concentration, uint16_t* frc_correction) const;
+  picoro::Coroutine<int16_t> get_automatic_self_calibration(uint16_t* asc_enabled) const;
+  picoro::Coroutine<int16_t> set_automatic_self_calibration(uint16_t asc_enabled) const;
+  picoro::Coroutine<int16_t> start_low_power_periodic_measurement() const;
+  picoro::Coroutine<int16_t> get_data_ready_flag(bool* data_ready_flag) const;
+  picoro::Coroutine<int16_t> persist_settings() const;
+  picoro::Coroutine<int16_t> get_serial_number(uint16_t* serial_0, uint16_t* serial_1, uint16_t* serial_2) const;
+  picoro::Coroutine<int16_t> perform_self_test(uint16_t* sensor_status) const;
+  picoro::Coroutine<int16_t> perform_factory_reset() const;
+  picoro::Coroutine<int16_t> reinit() const;
+  picoro::Coroutine<int16_t> measure_single_shot() const;
+  picoro::Coroutine<int16_t> measure_single_shot_rht_only() const;
+  picoro::Coroutine<int16_t> power_down() const;
+  picoro::Coroutine<int16_t> wake_up() const;
 };
 
 inline
@@ -533,7 +532,7 @@ SCD4x::SCD4x(async_context_t* context)
 : context(context) {}
 
 inline
-picoro::Coroutine<int16_t> SCD4x::start_periodic_measurement() {
+picoro::Coroutine<int16_t> SCD4x::start_periodic_measurement() const {
     int16_t error;
     uint8_t buffer[2];
     uint16_t offset = 0;
@@ -549,7 +548,7 @@ picoro::Coroutine<int16_t> SCD4x::start_periodic_measurement() {
 
 inline
 picoro::Coroutine<int16_t> SCD4x::read_measurement_ticks(uint16_t* co2, uint16_t* temperature,
-                                     uint16_t* humidity) {
+                                     uint16_t* humidity) const {
     int16_t error;
     uint8_t buffer[9];
     uint16_t offset = 0;
@@ -574,7 +573,7 @@ picoro::Coroutine<int16_t> SCD4x::read_measurement_ticks(uint16_t* co2, uint16_t
 
 inline
 picoro::Coroutine<int16_t> SCD4x::read_measurement(uint16_t* co2, int32_t* temperature_m_deg_c,
-                               int32_t* humidity_m_percent_rh) {
+                               int32_t* humidity_m_percent_rh) const {
     int16_t error;
     uint16_t temperature;
     uint16_t humidity;
@@ -589,7 +588,7 @@ picoro::Coroutine<int16_t> SCD4x::read_measurement(uint16_t* co2, int32_t* tempe
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::stop_periodic_measurement() {
+picoro::Coroutine<int16_t> SCD4x::stop_periodic_measurement() const {
     int16_t error;
     uint8_t buffer[2];
     uint16_t offset = 0;
@@ -604,7 +603,7 @@ picoro::Coroutine<int16_t> SCD4x::stop_periodic_measurement() {
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::get_temperature_offset_ticks(uint16_t* t_offset) {
+picoro::Coroutine<int16_t> SCD4x::get_temperature_offset_ticks(uint16_t* t_offset) const {
     int16_t error;
     uint8_t buffer[3];
     uint16_t offset = 0;
@@ -626,7 +625,7 @@ picoro::Coroutine<int16_t> SCD4x::get_temperature_offset_ticks(uint16_t* t_offse
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::get_temperature_offset(int32_t* t_offset_m_deg_c) {
+picoro::Coroutine<int16_t> SCD4x::get_temperature_offset(int32_t* t_offset_m_deg_c) const {
     int16_t error;
     uint16_t t_offset;
 
@@ -639,7 +638,7 @@ picoro::Coroutine<int16_t> SCD4x::get_temperature_offset(int32_t* t_offset_m_deg
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::set_temperature_offset_ticks(uint16_t t_offset) {
+picoro::Coroutine<int16_t> SCD4x::set_temperature_offset_ticks(uint16_t t_offset) const {
     int16_t error;
     uint8_t buffer[5];
     uint16_t offset = 0;
@@ -656,13 +655,13 @@ picoro::Coroutine<int16_t> SCD4x::set_temperature_offset_ticks(uint16_t t_offset
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::set_temperature_offset(int32_t t_offset_m_deg_c) {
+picoro::Coroutine<int16_t> SCD4x::set_temperature_offset(int32_t t_offset_m_deg_c) const {
     uint16_t t_offset = (uint16_t)((t_offset_m_deg_c * 12271) >> 15);
     co_return co_await set_temperature_offset_ticks(t_offset);
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::get_sensor_altitude(uint16_t* sensor_altitude) {
+picoro::Coroutine<int16_t> SCD4x::get_sensor_altitude(uint16_t* sensor_altitude) const {
     int16_t error;
     uint8_t buffer[3];
     uint16_t offset = 0;
@@ -684,7 +683,7 @@ picoro::Coroutine<int16_t> SCD4x::get_sensor_altitude(uint16_t* sensor_altitude)
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::set_sensor_altitude(uint16_t sensor_altitude) {
+picoro::Coroutine<int16_t> SCD4x::set_sensor_altitude(uint16_t sensor_altitude) const {
     int16_t error;
     uint8_t buffer[5];
     uint16_t offset = 0;
@@ -702,7 +701,7 @@ picoro::Coroutine<int16_t> SCD4x::set_sensor_altitude(uint16_t sensor_altitude) 
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::set_ambient_pressure(uint16_t ambient_pressure) {
+picoro::Coroutine<int16_t> SCD4x::set_ambient_pressure(uint16_t ambient_pressure) const {
     int16_t error;
     uint8_t buffer[5];
     uint16_t offset = 0;
@@ -721,7 +720,7 @@ picoro::Coroutine<int16_t> SCD4x::set_ambient_pressure(uint16_t ambient_pressure
 
 inline
 picoro::Coroutine<int16_t> SCD4x::perform_forced_recalibration(uint16_t target_co2_concentration,
-                                           uint16_t* frc_correction) {
+                                           uint16_t* frc_correction) const {
     int16_t error;
     uint8_t buffer[5];
     uint16_t offset = 0;
@@ -746,7 +745,7 @@ picoro::Coroutine<int16_t> SCD4x::perform_forced_recalibration(uint16_t target_c
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::get_automatic_self_calibration(uint16_t* asc_enabled) {
+picoro::Coroutine<int16_t> SCD4x::get_automatic_self_calibration(uint16_t* asc_enabled) const {
     int16_t error;
     uint8_t buffer[3];
     uint16_t offset = 0;
@@ -768,7 +767,7 @@ picoro::Coroutine<int16_t> SCD4x::get_automatic_self_calibration(uint16_t* asc_e
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::set_automatic_self_calibration(uint16_t asc_enabled) {
+picoro::Coroutine<int16_t> SCD4x::set_automatic_self_calibration(uint16_t asc_enabled) const {
     int16_t error;
     uint8_t buffer[5];
     uint16_t offset = 0;
@@ -786,7 +785,7 @@ picoro::Coroutine<int16_t> SCD4x::set_automatic_self_calibration(uint16_t asc_en
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::start_low_power_periodic_measurement() {
+picoro::Coroutine<int16_t> SCD4x::start_low_power_periodic_measurement() const {
     uint8_t buffer[2];
     uint16_t offset = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0x21AC);
@@ -795,7 +794,7 @@ picoro::Coroutine<int16_t> SCD4x::start_low_power_periodic_measurement() {
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::get_data_ready_flag(bool* data_ready_flag) {
+picoro::Coroutine<int16_t> SCD4x::get_data_ready_flag(bool* data_ready_flag) const {
     int16_t error;
     uint8_t buffer[3];
     uint16_t offset = 0;
@@ -819,7 +818,7 @@ picoro::Coroutine<int16_t> SCD4x::get_data_ready_flag(bool* data_ready_flag) {
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::persist_settings() {
+picoro::Coroutine<int16_t> SCD4x::persist_settings() const {
     int16_t error;
     uint8_t buffer[2];
     uint16_t offset = 0;
@@ -835,7 +834,7 @@ picoro::Coroutine<int16_t> SCD4x::persist_settings() {
 
 inline
 picoro::Coroutine<int16_t> SCD4x::get_serial_number(uint16_t* serial_0, uint16_t* serial_1,
-                                uint16_t* serial_2) {
+                                uint16_t* serial_2) const {
     int16_t error;
     uint8_t buffer[9];
     uint16_t offset = 0;
@@ -859,7 +858,7 @@ picoro::Coroutine<int16_t> SCD4x::get_serial_number(uint16_t* serial_0, uint16_t
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::perform_self_test(uint16_t* sensor_status) {
+picoro::Coroutine<int16_t> SCD4x::perform_self_test(uint16_t* sensor_status) const {
     int16_t error;
     uint8_t buffer[3];
     uint16_t offset = 0;
@@ -881,7 +880,7 @@ picoro::Coroutine<int16_t> SCD4x::perform_self_test(uint16_t* sensor_status) {
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::perform_factory_reset() {
+picoro::Coroutine<int16_t> SCD4x::perform_factory_reset() const {
     int16_t error;
     uint8_t buffer[2];
     uint16_t offset = 0;
@@ -896,7 +895,7 @@ picoro::Coroutine<int16_t> SCD4x::perform_factory_reset() {
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::reinit() {
+picoro::Coroutine<int16_t> SCD4x::reinit() const {
     int16_t error;
     uint8_t buffer[2];
     uint16_t offset = 0;
@@ -911,7 +910,7 @@ picoro::Coroutine<int16_t> SCD4x::reinit() {
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::measure_single_shot() {
+picoro::Coroutine<int16_t> SCD4x::measure_single_shot() const {
     int16_t error;
     uint8_t buffer[2];
     uint16_t offset = 0;
@@ -926,7 +925,7 @@ picoro::Coroutine<int16_t> SCD4x::measure_single_shot() {
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::measure_single_shot_rht_only() {
+picoro::Coroutine<int16_t> SCD4x::measure_single_shot_rht_only() const {
     int16_t error;
     uint8_t buffer[2];
     uint16_t offset = 0;
@@ -941,7 +940,7 @@ picoro::Coroutine<int16_t> SCD4x::measure_single_shot_rht_only() {
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::power_down() {
+picoro::Coroutine<int16_t> SCD4x::power_down() const {
     int16_t error;
     uint8_t buffer[2];
     uint16_t offset = 0;
@@ -956,7 +955,7 @@ picoro::Coroutine<int16_t> SCD4x::power_down() {
 }
 
 inline
-picoro::Coroutine<int16_t> SCD4x::wake_up() {
+picoro::Coroutine<int16_t> SCD4x::wake_up() const {
     uint8_t buffer[2];
     uint16_t offset = 0;
     offset = i2c::add_command_to_buffer(&buffer[0], offset, 0x36F6);
@@ -966,7 +965,5 @@ picoro::Coroutine<int16_t> SCD4x::wake_up() {
     co_await picoro::sleep_for(context, std::chrono::microseconds(20000));
     co_return NO_ERROR;
 }
-
-} // namespace scd4x
 
 } // namespace sensirion
