@@ -20,13 +20,17 @@ add_executable(coroutines
         )
 
 # Enable coroutines (GCC 10 requires a flag) and stricter warnings for our C++ code only.
-set_source_files_properties(coroutines.cpp picoro.h scd4x.h
+set_source_files_properties(coroutines.cpp picoro.h secrets.h scd4x.h lwipopts.h
         PROPERTIES COMPILE_OPTIONS -fcoroutines -Wextra -pedantic)
+
+# Make our lwipopts.h visible to lwip, which includes it.
+target_include_directories(coroutines PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}
+        )
 
 target_link_libraries(coroutines
         pico_stdlib
-        # we need wifi in order to access the GPIO for the built-in LED
-        pico_cyw43_arch_none
+        pico_cyw43_arch_lwip_poll
         hardware_i2c
         pico_async_context_poll
         )

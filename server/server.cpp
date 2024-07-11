@@ -104,13 +104,6 @@ err_t send_response(Client& client, tcp_pcb *client_pcb) {
     return err;
 }
 
-err_t check(err_t err) {
-    if (err) {
-        debug("err: %s\n", describe(err));
-    }
-    return err;
-}
-
 err_t cleanup_connection(Client *client, tcp_pcb *client_pcb) {
     tcp_arg(client_pcb, NULL);
     tcp_sent(client_pcb, NULL);
