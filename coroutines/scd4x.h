@@ -217,18 +217,6 @@ int8_t Device::write(const uint8_t* data, uint16_t count) const {
   }
 }
 
-/**
- * Sleep for a given number of microseconds. The function should delay the
- * execution for at least the given time, but may also sleep longer.
- *
- * Despite the unit, a <10 millisecond precision is sufficient.
- *
- * @param useconds the sleep time in microseconds
- */
-void hal_sleep_usec(uint32_t useconds) {
-    sleep_us(useconds);
-}
-
 inline
 uint8_t generate_crc(const uint8_t* data, uint16_t count) {
     uint16_t current_byte;
