@@ -23,7 +23,7 @@
 
 #define debug(...) printf(__VA_ARGS__)
 
-const char *describe(err_t error) {
+const char *wifi_describe(err_t error) {
     switch (error) {
     case ERR_OK: return "[ERR_OK] No error, everything OK";
     case ERR_MEM: return "[ERR_MEM] Out of memory error";
@@ -43,7 +43,23 @@ const char *describe(err_t error) {
     case ERR_CLSD: return "[ERR_CLSD] Connection closed";
     case ERR_ARG: return "[ERR_ARG] Illegal argument";
     }
-    return "Unknown error code.";
+    return "Unknown lwIP error code";
+}
+
+const char *pico_describe(int error) {
+    switch (error) {
+    case PICO_OK: return "[PICO_OK]";
+    case PICO_ERROR_TIMEOUT: return "[PICO_ERROR_TIMEOUT]";
+    case PICO_ERROR_GENERIC: return "[PICO_ERROR_GENERIC]";
+    case PICO_ERROR_NO_DATA: return "[PICO_ERROR_NO_DATA]";
+    case PICO_ERROR_NOT_PERMITTED: return "[PICO_ERROR_NOT_PERMITTED]";
+    case PICO_ERROR_INVALID_ARG: return "[PICO_ERROR_INVALID_ARG]";
+    case PICO_ERROR_IO: return "[PICO_ERROR_IO]";
+    case PICO_ERROR_BADAUTH: return "[PICO_ERROR_BADAUTH]";
+    case PICO_ERROR_CONNECT_FAILED: return "[PICO_ERROR_CONNECT_FAILED]";
+    case PICO_ERROR_INSUFFICIENT_RESOURCES: return "[PICO_ERROR_INSUFFICIENT_RESOURCES]";
+    }
+    return "Unknown Pico error code";
 }
 
 struct Measurement {
@@ -97,13 +113,13 @@ err_t send_response(Client& client, tcp_pcb *client_pcb) {
     const u8_t flags = 0;
     err_t err = tcp_write(client_pcb, client.response_buffer.data(), client.response_length, flags);
     if (err) {
-        debug("tcp_write error: %s\n", describe(err));
+        debug("tcp_write error: %s\n", wifi_describe(err));
         return err;
     }
 
     err = tcp_output(client_pcb); 	
     if (err) {
-        debug("tcp_output error: %s\n", describe(err));
+        debug("tcp_output error: %s\n", wifi_describe(err));
     }
 
     return err;
@@ -119,7 +135,7 @@ err_t cleanup_connection(Client *client, tcp_pcb *client_pcb) {
 
     err_t err = tcp_close(client_pcb);
     if (err) {
-        debug("tcp_close error: %s\n", describe(err));
+        debug("tcp_close error: %s\n", wifi_describe(err));
     }
     return err;
 }
@@ -137,7 +153,7 @@ err_t on_sent(void *arg, tcp_pcb *client_pcb, u16_t len) {
 
 err_t on_recv(void *arg, tcp_pcb *client_pcb, pbuf *buf, err_t err) {
     if (err) {
-        debug("on_recv error: %s\n", describe(err));
+        debug("on_recv error: %s\n", wifi_describe(err));
         if (buf) {
             pbuf_free(buf);
         }
@@ -150,7 +166,7 @@ err_t on_recv(void *arg, tcp_pcb *client_pcb, pbuf *buf, err_t err) {
     }
 
     if (buf->tot_len > 0) {
-        debug("tcp_server_recv %d bytes. status: %s\n", buf->tot_len, describe(err));
+        debug("tcp_server_recv %d bytes. status: %s\n", buf->tot_len, wifi_describe(err));
         tcp_recved(client_pcb, buf->tot_len);
     }
     pbuf_free(buf);
@@ -159,13 +175,13 @@ err_t on_recv(void *arg, tcp_pcb *client_pcb, pbuf *buf, err_t err) {
 }
 
 void on_err(void *arg, err_t err) {
-    debug("Connection fatal error: %s\n", describe(err));
+    debug("Connection fatal error: %s\n", wifi_describe(err));
     delete static_cast<Client*>(arg);
 }
 
 err_t on_accept(void *arg, tcp_pcb *client_pcb, err_t err) {
     if (err || client_pcb == NULL) {
-        debug("Failed to accept a connection: %s\n", describe(err));
+        debug("Failed to accept a connection: %s\n", wifi_describe(err));
         return ERR_VAL; // Is this the appropriate return value?
     }
     debug("Client connected.\n");
@@ -190,14 +206,14 @@ void setup_http_server(u16_t port) {
 
     err_t err = tcp_bind(pcb, IP_ADDR_ANY, port);
     if (err) {
-        debug("Failed to bind to port %u: %s\n", port, describe(err));
+        debug("Failed to bind to port %u: %s\n", port, wifi_describe(err));
         return;
     }
 
     const u8_t backlog = 1;
     pcb = tcp_listen_with_backlog_and_err(pcb, backlog, &err);
     if (!pcb) {
-        debug("Failed to listen: %s\n", describe(err));
+        debug("Failed to listen: %s\n", wifi_describe(err));
         return;
     }
 
@@ -207,7 +223,6 @@ void setup_http_server(u16_t port) {
 // Wait for the host to attach to the USB terminal (i.e. ttyACM0).
 // Blink the onboard LED while we're waiting.
 // Give up after the specified number of seconds.
-/* TODO: Now that we have to connect to WiFi, do it synchronously in main() instead.
 picoro::Coroutine<void> wait_for_usb_debug_attach(async_context_t *context, std::chrono::seconds timeout) {
     const int iterations = timeout / std::chrono::seconds(1);
     for (int i = 0; i < iterations && !tud_cdc_connected(); ++i) {
@@ -220,7 +235,6 @@ picoro::Coroutine<void> wait_for_usb_debug_attach(async_context_t *context, std:
     co_await picoro::sleep_for(context, std::chrono::seconds(1));
     printf("Glad you could make it.\n");
 }
-*/
 
 picoro::Coroutine<bool> data_ready(const sensirion::SCD4x& sensor) {
     bool result;
@@ -297,8 +311,72 @@ picoro::Coroutine<void> monitor_scd4x(async_context_t *context) {
     i2c_deinit(instance);
 }
 
+picoro::Coroutine<void> blink(async_context_t *context, int times, std::chrono::milliseconds period) {
+    const bool led_state = cyw43_arch_gpio_get(CYW43_WL_GPIO_LED_PIN);
+    const auto delay = period / 2;
+    for (int i = 0; i < times; ++i) {
+        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, !led_state);
+        co_await picoro::sleep_for(context, delay);
+        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led_state);
+        co_await picoro::sleep_for(context, delay);
+    }
+}
+
+picoro::Coroutine<void> wifi_connect(async_context_t *context, const char *SSID, const char *password) {
+    struct LEDGuard {
+        LEDGuard() { cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, true); }
+        ~LEDGuard() { cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, false); }
+    } led_guard;
+
+    cyw43_arch_enable_sta_mode();
+    // const uint32_t ultra_performance_giga_chad_power_mode =
+    //     cyw43_pm_value(CYW43_NO_POWERSAVE_MODE, 20, 1, 1, 1);
+    // cyw43_wifi_pm(&cyw43_state, ultra_performance_giga_chad_power_mode);
+    cyw43_wifi_pm(&cyw43_state, CYW43_PERFORMANCE_PM);
+
+    debug("Connecting to WiFi...\n");
+    int rc = cyw43_arch_wifi_connect_async(SSID, password, CYW43_AUTH_WPA2_AES_PSK);
+    if (rc) {
+        debug("Error connecting to wifi: %s.", pico_describe(rc));
+        // Blink a few times to show that there's a problem.
+        co_await blink(context, 10, std::chrono::milliseconds(250));
+        co_return;
+    }
+
+    // This loop is based on the source code of
+    // `cyw43_arch_wifi_connect_bssid_until` from the SDK.
+    int wifi_status;
+    for (;;) {
+        wifi_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
+        if (wifi_status == CYW43_LINK_UP) {
+            break;
+        }
+        // If there was no network, keep trying to connect.
+        if (wifi_status == CYW43_LINK_NONET) {
+            rc = cyw43_arch_wifi_connect_async(SSID, password, CYW43_AUTH_WPA2_AES_PSK);
+            if (rc) {
+                debug("Error connecting to wifi: %s.", pico_describe(rc));
+                // Blink a few times to show that there's a problem.
+                co_await blink(context, 10, std::chrono::milliseconds(250));
+                co_return;
+            }
+        }
+        co_await picoro::sleep_for(context, std::chrono::seconds(1));
+    }
+
+    debug("Connected to WiFi.\n");
+}
+
+picoro::Coroutine<void> networking(async_context_t *context) {
+    co_await wifi_connect(context, "Annoying Saxophone", wifi_password);
+    setup_http_server(80);
+}
+
 picoro::Coroutine<void> coroutine_main(async_context_t *context) {
-    // co_await wait_for_usb_debug_attach(context, std::chrono::seconds(10));
+    co_await wait_for_usb_debug_attach(context, std::chrono::seconds(10));
+    // Run the WiFi and server setup in the background.
+    auto server = networking(context);
+    // Loop forever reading sensor data.
     co_await monitor_scd4x(context);
 }
 
@@ -312,37 +390,14 @@ int main() {
         return -2;
     }
 
+    // Do some WiFi chip setup here, just so that we can use the LED
+    // immediately. The rest of the setup happens in `coroutine_main`.
     cyw43_arch_set_async_context(&context.core);
-
     // 🇺🇸 🦅
     if (cyw43_arch_init_with_country(CYW43_COUNTRY_USA)) {
         debug("failed to initialize WiFi\n");
         return 1;
     }
-
-    // Wait for the host to attach to the USB terminal (i.e. ttyACM0).
-    while (!tud_cdc_connected()) {
-        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
-        sleep_ms(500);
-        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
-        sleep_ms(500);
-    }
-
-    cyw43_arch_enable_sta_mode();
-    const uint32_t ultra_performance_giga_chad_power_mode =
-        cyw43_pm_value(CYW43_NO_POWERSAVE_MODE, 20, 1, 1, 1);
-    cyw43_wifi_pm(&cyw43_state, ultra_performance_giga_chad_power_mode);
-
-    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
-    debug("Connecting to WiFi...\n");
-    while (cyw43_arch_wifi_connect_timeout_ms("Annoying Saxophone", wifi_password, CYW43_AUTH_WPA2_AES_PSK, 20000)) {
-        debug("Failed to connect to WiFi. Trying again in 5 seconds.\n");
-        sleep_ms(5 * 1000);
-    }
-    debug("Connected to WiFi.\n");
-    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
-    
-    setup_http_server(80);
 
     run_event_loop(&context.core, coroutine_main(&context.core));
 
