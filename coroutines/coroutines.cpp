@@ -23,7 +23,7 @@
 
 #define debug(...) printf(__VA_ARGS__)
 
-const char *wifi_describe(err_t error) {
+const char *lwip_describe(err_t error) {
     switch (error) {
     case ERR_OK: return "[ERR_OK] No error, everything OK";
     case ERR_MEM: return "[ERR_MEM] Out of memory error";
@@ -44,6 +44,19 @@ const char *wifi_describe(err_t error) {
     case ERR_ARG: return "[ERR_ARG] Illegal argument";
     }
     return "Unknown lwIP error code";
+}
+
+const char *cyw43_describe(int status) {
+    switch (status) {
+    case CYW43_LINK_DOWN: return "[CYW43_LINK_DOWN] Wifi down";
+    case CYW43_LINK_JOIN: return "[CYW43_LINK_JOIN] Connected to wifi";
+    case CYW43_LINK_NOIP: return "[CYW43_LINK_NOIP] Connected to wifi, but no IP address";
+    case CYW43_LINK_UP: return "[CYW43_LINK_UP] Connected to wifi with an IP address";
+    case CYW43_LINK_FAIL: return "[CYW43_LINK_FAIL] Connection failed";
+    case CYW43_LINK_NONET: return "[CYW43_LINK_NONET] No matching SSID found (could be out of range, or down)";
+    case CYW43_LINK_BADAUTH: return "[CYW43_LINK_BADAUTH] Authentication failure";
+    }
+    return "Unknown cyw43 status code";
 }
 
 const char *pico_describe(int error) {
@@ -113,13 +126,13 @@ err_t send_response(Client& client, tcp_pcb *client_pcb) {
     const u8_t flags = 0;
     err_t err = tcp_write(client_pcb, client.response_buffer.data(), client.response_length, flags);
     if (err) {
-        debug("tcp_write error: %s\n", wifi_describe(err));
+        debug("tcp_write error: %s\n", lwip_describe(err));
         return err;
     }
 
     err = tcp_output(client_pcb); 	
     if (err) {
-        debug("tcp_output error: %s\n", wifi_describe(err));
+        debug("tcp_output error: %s\n", lwip_describe(err));
     }
 
     return err;
@@ -135,7 +148,7 @@ err_t cleanup_connection(Client *client, tcp_pcb *client_pcb) {
 
     err_t err = tcp_close(client_pcb);
     if (err) {
-        debug("tcp_close error: %s\n", wifi_describe(err));
+        debug("tcp_close error: %s\n", lwip_describe(err));
     }
     return err;
 }
@@ -153,7 +166,7 @@ err_t on_sent(void *arg, tcp_pcb *client_pcb, u16_t len) {
 
 err_t on_recv(void *arg, tcp_pcb *client_pcb, pbuf *buf, err_t err) {
     if (err) {
-        debug("on_recv error: %s\n", wifi_describe(err));
+        debug("on_recv error: %s\n", lwip_describe(err));
         if (buf) {
             pbuf_free(buf);
         }
@@ -166,7 +179,7 @@ err_t on_recv(void *arg, tcp_pcb *client_pcb, pbuf *buf, err_t err) {
     }
 
     if (buf->tot_len > 0) {
-        debug("tcp_server_recv %d bytes. status: %s\n", buf->tot_len, wifi_describe(err));
+        debug("tcp_server_recv %d bytes. status: %s\n", buf->tot_len, lwip_describe(err));
         tcp_recved(client_pcb, buf->tot_len);
     }
     pbuf_free(buf);
@@ -175,13 +188,13 @@ err_t on_recv(void *arg, tcp_pcb *client_pcb, pbuf *buf, err_t err) {
 }
 
 void on_err(void *arg, err_t err) {
-    debug("Connection fatal error: %s\n", wifi_describe(err));
+    debug("Connection fatal error: %s\n", lwip_describe(err));
     delete static_cast<Client*>(arg);
 }
 
 err_t on_accept(void *arg, tcp_pcb *client_pcb, err_t err) {
     if (err || client_pcb == NULL) {
-        debug("Failed to accept a connection: %s\n", wifi_describe(err));
+        debug("Failed to accept a connection: %s\n", lwip_describe(err));
         return ERR_VAL; // Is this the appropriate return value?
     }
     debug("Client connected.\n");
@@ -206,14 +219,14 @@ void setup_http_server(u16_t port) {
 
     err_t err = tcp_bind(pcb, IP_ADDR_ANY, port);
     if (err) {
-        debug("Failed to bind to port %u: %s\n", port, wifi_describe(err));
+        debug("Failed to bind to port %u: %s\n", port, lwip_describe(err));
         return;
     }
 
     const u8_t backlog = 1;
     pcb = tcp_listen_with_backlog_and_err(pcb, backlog, &err);
     if (!pcb) {
-        debug("Failed to listen: %s\n", wifi_describe(err));
+        debug("Failed to listen: %s\n", lwip_describe(err));
         return;
     }
 
@@ -343,16 +356,27 @@ picoro::Coroutine<void> wifi_connect(async_context_t *context, const char *SSID,
         co_return;
     }
 
-    // This loop is based on the source code of
-    // `cyw43_arch_wifi_connect_bssid_until` from the SDK.
-    int wifi_status;
     for (;;) {
-        wifi_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
+        const int wifi_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
+        debug("WiFi status: %s\n", cyw43_describe(wifi_status));
         if (wifi_status == CYW43_LINK_UP) {
             break;
-        }
-        // If there was no network, keep trying to connect.
-        if (wifi_status == CYW43_LINK_NONET) {
+        } else if (wifi_status == CYW43_LINK_FAIL) {
+            // If we failed, then reset the adapter, wait a few seconds, and try again.
+            rc = cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+            debug("Disassociating from WiFi network. rcode: %d\n", rc);
+            debug("Will retry WiFi in a few seconds.\n");
+            co_await picoro::sleep_for(context, std::chrono::seconds(5));
+            debug("Connecting to WiFi...\n");
+            int rc = cyw43_arch_wifi_connect_async(SSID, password, CYW43_AUTH_WPA2_AES_PSK);
+            if (rc) {
+                debug("Error connecting to wifi: %s.", pico_describe(rc));
+                // Blink a few times to show that there's a problem.
+                co_await blink(context, 10, std::chrono::milliseconds(250));
+                co_return;
+            }
+        } else if (wifi_status == CYW43_LINK_NONET) {
+            // If there was no network, keep trying to connect.
             rc = cyw43_arch_wifi_connect_async(SSID, password, CYW43_AUTH_WPA2_AES_PSK);
             if (rc) {
                 debug("Error connecting to wifi: %s.", pico_describe(rc));
