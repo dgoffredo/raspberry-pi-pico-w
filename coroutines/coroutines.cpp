@@ -53,13 +53,13 @@ struct Measurement {
     int32_t relative_humidity_millipercent = 0;
 } latest;
 
-template <std::size_t buffer_size>
-int format_response(
-    std::array<char, buffer_size>& buffer,
-    const Measurement& data) {
+// 225 bytes is the largest the response could ever be. I counted.
+constexpr std::size_t max_response_length = 225;
 
-    // 225 bytes is the largest the response could ever be. I counted.
-    static_assert(buffer_size >= 225 + 1);
+int format_response(
+    // +1 for the null terminator
+    std::array<char, max_response_length + 1>& buffer,
+    const Measurement& data) {
 
     constexpr char response_format[] =
         "HTTP/1.1 200 OK\r\n"
@@ -73,7 +73,7 @@ int format_response(
     
     return std::snprintf(
         buffer.data(),
-        buffer_size,
+        buffer.size(),
         response_format,
         data.sequence_number,
         data.co2_ppm,
@@ -84,9 +84,10 @@ int format_response(
 }
 
 struct Client {
-    std::array<char, 256> response_buffer;
     int response_length = 0;
     int response_bytes_acked = 0;
+    // +1 for the null terminator
+    std::array<char, max_response_length + 1> response_buffer;
 };
 
 err_t send_response(Client& client, tcp_pcb *client_pcb) {
@@ -149,7 +150,7 @@ err_t on_recv(void *arg, tcp_pcb *client_pcb, pbuf *buf, err_t err) {
     }
 
     if (buf->tot_len > 0) {
-        debug("tcp_server_recv %d bytes. err: %d\n", buf->tot_len, err);
+        debug("tcp_server_recv %d bytes. status: %s\n", buf->tot_len, describe(err));
         tcp_recved(client_pcb, buf->tot_len);
     }
     pbuf_free(buf);
@@ -158,16 +159,16 @@ err_t on_recv(void *arg, tcp_pcb *client_pcb, pbuf *buf, err_t err) {
 }
 
 void on_err(void *arg, err_t err) {
-    debug("connection fatal error: %s\n", describe(err));
+    debug("Connection fatal error: %s\n", describe(err));
     delete static_cast<Client*>(arg);
 }
 
 err_t on_accept(void *arg, tcp_pcb *client_pcb, err_t err) {
     if (err || client_pcb == NULL) {
-        debug("failed to accept a connection: %s\n", describe(err));
+        debug("Failed to accept a connection: %s\n", describe(err));
         return ERR_VAL; // Is this the appropriate return value?
     }
-    debug("client connected\n");
+    debug("Client connected.\n");
 
     auto *client = new Client;
     tcp_arg(client_pcb, client);
@@ -183,20 +184,20 @@ void setup_http_server(u16_t port) {
 
     tcp_pcb *pcb = tcp_new_ip_type(IPADDR_TYPE_ANY);
     if (!pcb) {
-        debug("failed to create server pcb\n");
+        debug("Failed to create server PCB.\n");
         return;
     }
 
     err_t err = tcp_bind(pcb, IP_ADDR_ANY, port);
     if (err) {
-        debug("failed to bind to port %u: %s\n", port, describe(err));
+        debug("Failed to bind to port %u: %s\n", port, describe(err));
         return;
     }
 
     const u8_t backlog = 1;
     pcb = tcp_listen_with_backlog_and_err(pcb, backlog, &err);
     if (!pcb) {
-        debug("failed to listen: %s\n", describe(err));
+        debug("Failed to listen: %s\n", describe(err));
         return;
     }
 
@@ -320,16 +321,17 @@ int main() {
     }
 
     // Wait for the host to attach to the USB terminal (i.e. ttyACM0).
-    /*
     while (!tud_cdc_connected()) {
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
         sleep_ms(500);
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
         sleep_ms(500);
     }
-    */
 
     cyw43_arch_enable_sta_mode();
+    const uint32_t ultra_performance_giga_chad_power_mode =
+        cyw43_pm_value(CYW43_NO_POWERSAVE_MODE, 20, 1, 1, 1);
+    cyw43_wifi_pm(&cyw43_state, ultra_performance_giga_chad_power_mode);
 
     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
     debug("Connecting to WiFi...\n");
