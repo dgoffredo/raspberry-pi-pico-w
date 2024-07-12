@@ -90,6 +90,17 @@ int format_response(
     std::array<char, max_response_length + 1>& buffer,
     const Measurement& data) {
 
+    // If we haven't made a measurement yet, respond with an error telling the
+    // client to try again in a few seconds.
+    if (data.sequence_number == 0) {
+        constexpr char response[] =
+            "HTTP/1.1 503 Service Unavailable\r\n"
+            "Connection: close\r\n"
+            "Retry-After: 5\r\n"
+            "\r\n";
+        return std::snprintf(buffer.data(), buffer.size(), "%s", response);
+    }
+
     constexpr char response_format[] =
         "HTTP/1.1 200 OK\r\n"
         "Connection: close\r\n"
