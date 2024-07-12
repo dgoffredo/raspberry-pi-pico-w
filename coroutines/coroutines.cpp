@@ -240,7 +240,7 @@ picoro::Coroutine<bool> data_ready(const sensirion::SCD4x& sensor) {
     bool result;
     int rc = co_await sensor.get_data_ready_flag(&result);
     if (rc) {
-        printf("Unable to query whether the sensor has data ready. Error code %d.\n", rc);
+        debug("Unable to query whether the sensor has data ready. Error code %d.\n", rc);
         co_return false;
     }
     co_return result;
@@ -273,12 +273,12 @@ picoro::Coroutine<void> monitor_scd4x(async_context_t *context) {
 
     int rc = co_await sensor.set_automatic_self_calibration(0);
     if (rc) {
-        printf("Unable to disable automatic self-calibration. Error code %d.\n", rc);
+        debug("Unable to disable automatic self-calibration. Error code %d.\n", rc);
     }
 
     rc = co_await sensor.start_periodic_measurement();
     if (rc) {
-        printf("Unable to start periodic measurement mode. Error code %d.\n", rc);
+        debug("Unable to start periodic measurement mode. Error code %d.\n", rc);
     } 
 
     for (;;) {
@@ -292,7 +292,7 @@ picoro::Coroutine<void> monitor_scd4x(async_context_t *context) {
         int32_t relative_humidity_millipercent;
         rc = co_await sensor.read_measurement(&co2_ppm, &temperature_millicelsius, &relative_humidity_millipercent);
         if (rc) {
-            printf("Unable to read sensor measurement. Error code %d.\n", rc);
+            debug("Unable to read sensor measurement. Error code %d.\n", rc);
         } else {
             printf("CO2: %hu ppm\ttemperature: ", co2_ppm);
             print_millis_as_decimal(temperature_millicelsius);
@@ -386,7 +386,7 @@ int main() {
     async_context_poll_t context = {};
     bool succeeded = async_context_poll_init_with_defaults(&context);
     if (!succeeded) {
-        printf("Failed to initialize async_context_poll_t\n");
+        debug("Failed to initialize async_context_poll_t\n");
         return -2;
     }
 
