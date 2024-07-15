@@ -49,7 +49,8 @@
 
 #include <hardware/i2c.h>
 
-#include "picoro.h"
+#include "picoro/coroutine.h"
+#include "picoro/sleep.h"
 
 namespace sensirion {
 

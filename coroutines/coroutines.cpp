@@ -17,11 +17,14 @@
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
 
-#include "picoro.h"
+#include "picoro/coroutine.h"
+#include "picoro/event_loop.h"
+#include "picoro/sleep.h"
 #include "scd4x.h"
 #include "secrets.h"
 
-#define debug(...) printf(__VA_ARGS__)
+// #define debug(...) printf(__VA_ARGS__)
+#define debug(...) do {} while (false)
 
 const char *lwip_describe(err_t error) {
     switch (error) {
@@ -75,6 +78,20 @@ const char *pico_describe(int error) {
     return "Unknown Pico error code";
 }
 
+/* From cyw43.h:
+#define CYW43_LINK_DOWN         (0)     ///< link is down
+#define CYW43_LINK_JOIN         (1)     ///< Connected to wifi
+#define CYW43_LINK_NOIP         (2)     ///< Connected to wifi, but no IP address
+#define CYW43_LINK_UP           (3)     ///< Connect to wifi with an IP address
+#define CYW43_LINK_FAIL         (-1)    ///< Connection failed
+#define CYW43_LINK_NONET        (-2)    ///< No matching SSID found (could be out of range, or down)
+#define CYW43_LINK_BADAUTH      (-3)    ///< Authenticatation failure
+*/
+int wifi_status_counts[7] = {};
+void tick_wifi_status(int state) {
+    ++wifi_status_counts[state + 3];
+}
+
 struct Measurement {
     unsigned sequence_number = 0; 
     uint16_t co2_ppm = 0;
@@ -82,8 +99,8 @@ struct Measurement {
     int32_t relative_humidity_millipercent = 0;
 } latest;
 
-// 225 bytes is the largest the response could ever be. I counted.
-constexpr std::size_t max_response_length = 225;
+// TODO: Need to recalculate this. For now I fudge it up to 255.
+constexpr std::size_t max_response_length = 255;
 
 int format_response(
     // +1 for the null terminator
@@ -109,7 +126,8 @@ int format_response(
         "{\"sequence_number\": %u,"
         " \"CO2_ppm\": %hu,"
         " \"temperature_celsius\": %ld.%03ld,"
-        " \"relative_humidity_percent\": %ld.%03ld}";
+        " \"relative_humidity_percent\": %ld.%03ld,"
+        " \"wifi_status_counts\": [%d, %d, %d, %d, %d, %d, %d]}";
     
     return std::snprintf(
         buffer.data(),
@@ -120,7 +138,14 @@ int format_response(
         data.temperature_millicelsius / 1000,
         std::abs(data.temperature_millicelsius) % 1000,
         data.relative_humidity_millipercent / 1000,
-        std::abs(data.relative_humidity_millipercent) / 1000);
+        std::abs(data.relative_humidity_millipercent) / 1000,
+        wifi_status_counts[0],
+        wifi_status_counts[1],
+        wifi_status_counts[2],
+        wifi_status_counts[3],
+        wifi_status_counts[4],
+        wifi_status_counts[5],
+        wifi_status_counts[6]);
 }
 
 struct Client {
@@ -402,9 +427,19 @@ picoro::Coroutine<void> wifi_connect(async_context_t *context, const char *SSID,
     debug("Connected to WiFi.\n");
 }
 
+picoro::Coroutine<void> wifi_watchdog(async_context_t *context) {
+    for (;;) {
+        const int wifi_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
+        debug("WiFi status: %s\n", cyw43_describe(wifi_status));
+        tick_wifi_status(wifi_status);
+        co_await picoro::sleep_for(context, std::chrono::milliseconds(250));
+    }
+}
+
 picoro::Coroutine<void> networking(async_context_t *context) {
     co_await wifi_connect(context, "Annoying Saxophone", wifi_password);
     setup_http_server(80);
+    co_await wifi_watchdog(context);
 }
 
 picoro::Coroutine<void> coroutine_main(async_context_t *context) {
