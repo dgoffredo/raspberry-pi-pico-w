@@ -17,13 +17,13 @@
 #include <cstdio>
 #include <iterator>
 
-#include "picoro/coroutine.h"
-#include "picoro/event_loop.h"
-#include "picoro/sleep.h"
-#include "picoro/tcp.h"
-#include "picoro/drivers/scd4x.h"
+#include <picoro/coroutine.h>
+#include <picoro/debug.h>
+#include <picoro/event_loop.h>
+#include <picoro/sleep.h>
+#include <picoro/tcp.h>
+#include <picoro/drivers/scd4x.h>
 
-#include "debug.h"
 #include "secrets.h"
 
 const char *cyw43_describe(int status) {
@@ -318,7 +318,6 @@ picoro::Coroutine<void> http_server(int port, int listen_backlog) {
     debug("http_server: server started\n");
 
     for (;;) {
-    // for (int i = 0; i < 1; ++i) {
         debug("http_server: about to await accept()\n");
         auto [conn, err] = co_await listener.accept();
         if (err) {
