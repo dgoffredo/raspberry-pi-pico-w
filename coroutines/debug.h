@@ -2,5 +2,5 @@
 
 #include <stdio.h>
 
-#define debug(...) printf(__VA_ARGS__)
-// #define debug(...) do {} while (false)
+// #define debug(...) do { printf(__VA_ARGS__); fflush(stdout); } while (false)
+#define debug(...) do {} while (false)

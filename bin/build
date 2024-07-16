@@ -23,6 +23,7 @@ fi
 mkdir -p "$out"
 
 cd "$out"
-cmake -DCMAKE_BUILD_TYPE=Debug ..
+# cmake -DCMAKE_BUILD_TYPE=Debug ..
+cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j "$(nproc)" # VERBOSE=1
 printf '\nBuild exited with status %s\n' "$?"

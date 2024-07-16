@@ -14,10 +14,6 @@
 #include <cmath>
 #include <cstdio>
 
-// TODO
-#include "lwip/pbuf.h"
-#include "lwip/tcp.h"
-
 #include "picoro/coroutine.h"
 #include "picoro/event_loop.h"
 #include "picoro/sleep.h"
@@ -124,126 +120,6 @@ int format_response(
         wifi_status_counts[4],
         wifi_status_counts[5],
         wifi_status_counts[6]);
-}
-
-struct Client {
-    int response_length = 0;
-    int response_bytes_acked = 0;
-    // +1 for the null terminator
-    std::array<char, max_response_length + 1> response_buffer;
-};
-
-err_t send_response(Client& client, tcp_pcb *client_pcb) {
-    client.response_length = format_response(client.response_buffer, latest);
-    debug("Sending response of length %d\n", client.response_length);
-
-    const u8_t flags = 0;
-    err_t err = tcp_write(client_pcb, client.response_buffer.data(), client.response_length, flags);
-    if (err) {
-        debug("tcp_write error: %s\n", picoro::lwip_describe(err));
-        return err;
-    }
-
-    err = tcp_output(client_pcb); 	
-    if (err) {
-        debug("tcp_output error: %s\n", picoro::lwip_describe(err));
-    }
-
-    return err;
-}
-
-err_t cleanup_connection(Client *client, tcp_pcb *client_pcb) {
-    tcp_arg(client_pcb, NULL);
-    tcp_sent(client_pcb, NULL);
-    tcp_recv(client_pcb, NULL);
-    tcp_err(client_pcb, NULL);
-
-    delete client;
-
-    err_t err = tcp_close(client_pcb);
-    if (err) {
-        debug("tcp_close error: %s\n", picoro::lwip_describe(err));
-    }
-    return err;
-}
-
-err_t on_sent(void *arg, tcp_pcb *client_pcb, u16_t len) {
-    auto *client = static_cast<Client*>(arg);
-    client->response_bytes_acked += len;
-    debug("client ACK'd %d/%d bytes of the sent response\n", client->response_bytes_acked, client->response_length);
-    if (client->response_bytes_acked == client->response_length) {
-        debug("Client has received the entire response. Closing connection.\n");
-        return cleanup_connection(client, client_pcb);
-    }
-    return ERR_OK;
-}
-
-err_t on_recv(void *arg, tcp_pcb *client_pcb, pbuf *buf, err_t err) {
-    if (err) {
-        debug("on_recv error: %s\n", picoro::lwip_describe(err));
-        if (buf) {
-            pbuf_free(buf);
-        }
-        return ERR_OK;
-    }
-
-    if (!buf) {
-        debug("The client closed their side of the connection. Closing our side now.\n");
-        return cleanup_connection(static_cast<Client*>(arg), client_pcb);
-    }
-
-    if (buf->tot_len > 0) {
-        debug("tcp_server_recv %d bytes. status: %s\n", buf->tot_len, picoro::lwip_describe(err));
-        tcp_recved(client_pcb, buf->tot_len);
-    }
-    pbuf_free(buf);
-
-    return ERR_OK;
-}
-
-void on_err(void *arg, err_t err) {
-    debug("Connection fatal error: %s\n", picoro::lwip_describe(err));
-    delete static_cast<Client*>(arg);
-}
-
-err_t on_accept(void *arg, tcp_pcb *client_pcb, err_t err) {
-    if (err || client_pcb == NULL) {
-        debug("Failed to accept a connection: %s\n", picoro::lwip_describe(err));
-        return ERR_VAL; // Is this the appropriate return value?
-    }
-    debug("Client connected.\n");
-
-    auto *client = new Client;
-    tcp_arg(client_pcb, client);
-    tcp_sent(client_pcb, on_sent);
-    tcp_recv(client_pcb, on_recv);
-    tcp_err(client_pcb, on_err);
-
-    return send_response(*client, client_pcb);
-}
-
-void setup_http_server(u16_t port, u8_t backlog) {
-    debug("Starting server at %s on port %u\n", ip4addr_ntoa(netif_ip4_addr(netif_list)), port);
-
-    tcp_pcb *pcb = tcp_new_ip_type(IPADDR_TYPE_ANY);
-    if (!pcb) {
-        debug("Failed to create server PCB.\n");
-        return;
-    }
-
-    err_t err = tcp_bind(pcb, IP_ADDR_ANY, port);
-    if (err) {
-        debug("Failed to bind to port %u: %s\n", port, picoro::lwip_describe(err));
-        return;
-    }
-
-    pcb = tcp_listen_with_backlog_and_err(pcb, backlog, &err);
-    if (!pcb) {
-        debug("Failed to listen: %s\n", picoro::lwip_describe(err));
-        return;
-    }
-
-    tcp_accept(pcb, on_accept);
 }
 
 // Wait for the host to attach to the USB terminal (i.e. ttyACM0).
@@ -415,15 +291,16 @@ picoro::Coroutine<void> wifi_watchdog(async_context_t *context) {
 
 picoro::Coroutine<void> handle_client(picoro::Connection conn) {
     debug("in handle_client(...), about to await recv()\n");
-    char buffer[1024];
-    auto [count, err] = co_await conn.recv(buffer, sizeof buffer);
+    std::array<char, max_response_length + 1> buffer;
+    auto [count, err] = co_await conn.recv(buffer.data(), buffer.size());
     debug("in handle_client(...), received %d bytes with error %s\n", count, picoro::lwip_describe(err));
     if (err) {
         debug("in handle_client(...), since there was an error, I'm closing the connection and returning.\n");
         co_return;
     }
-    debug("in handle_client(...), about to await send()\n");
-    std::tie(count, err) = co_await conn.send("HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\nYay!\n");
+    debug("in handle_client(...), about to format response and await send()\n");
+    count = format_response(buffer, latest);
+    std::tie(count, err) = co_await conn.send(std::string_view(buffer.data(), count));
     debug("handle_client(...), finished send(). Sent %d bytes with error %s. About to close and return.\n", count, picoro::lwip_describe(err));
 }
 
@@ -453,9 +330,8 @@ picoro::Coroutine<void> networking(async_context_t *context) {
     co_await wifi_connect(context, "Annoying Saxophone", wifi_password);
     const int port = 80;
     const int listen_backlog = 1;
-    // setup_http_server(port, listen_backlog);
-    co_await http_server(port, listen_backlog);
-    // co_await wifi_watchdog(context);
+    http_server(port, listen_backlog).detach();
+    co_await wifi_watchdog(context);
 }
 
 picoro::Coroutine<void> coroutine_main(async_context_t *context) {

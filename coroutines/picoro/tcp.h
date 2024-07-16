@@ -354,7 +354,6 @@ Connection::~Connection() {
 inline
 err_t Connection::on_recv(void *user_data, tcp_pcb *, pbuf *buffer, err_t error) {
   debug("in Connection::on_recv\n");
-  fflush(stdout);
   auto *state = static_cast<Connection::State*>(user_data);
 
   struct Guard {
@@ -416,7 +415,6 @@ err_t Connection::on_recv(void *user_data, tcp_pcb *, pbuf *buffer, err_t error)
 inline
 err_t Connection::on_sent(void *user_data, tcp_pcb *, u16_t length) {
   debug("in Connection::on_sent. length: %hu\n", length);
-  fflush(stdout);
   auto *state = static_cast<Connection::State*>(user_data);
 
   // Resume any senders that are "filled up" by the client's acknowledgement of
@@ -482,9 +480,9 @@ err_t Connection::close() {
   }
 
   debug("Connection::close() is deregistering callbacks.\n");
-  tcp_sent(client_pcb, nullptr);
-  tcp_recv(client_pcb, nullptr);
-  tcp_err(client_pcb, nullptr);
+  tcp_sent(state_->client_pcb, nullptr);
+  tcp_recv(state_->client_pcb, nullptr);
+  tcp_err(state_->client_pcb, nullptr);
   const err_t error = tcp_close(state_->client_pcb);
   state_->client_pcb = nullptr;
 
@@ -544,18 +542,15 @@ bool RecvAwaiter::await_ready() {
 
 void RecvAwaiter::await_suspend(std::coroutine_handle<> continuation) {
   debug("RecvAwaiter::await_suspend. this: %p, connection: %p\n", this, connection);
-  fflush(stdout);
   this->continuation = continuation;
   assert(connection);
   connection->receivers.push(this);
   debug("finished RecvAwaiter::await_suspend\n");
-  fflush(stdout);
 }
 
 inline
 std::tuple<int, err_t> RecvAwaiter::await_resume() {
   debug("RecvAwaiter::await_resume\n");
-  fflush(stdout);
   return {received, error};
 }
 
