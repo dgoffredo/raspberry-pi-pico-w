@@ -20,34 +20,15 @@
 #include "picoro/coroutine.h"
 #include "picoro/event_loop.h"
 #include "picoro/sleep.h"
-#include "scd4x.h"
+#include "picoro/drivers/scd4x.h"
+
+// TODO
+#include "picoro/tcp.h"
+
 #include "secrets.h"
 
 // #define debug(...) printf(__VA_ARGS__)
 #define debug(...) do {} while (false)
-
-const char *lwip_describe(err_t error) {
-    switch (error) {
-    case ERR_OK: return "[ERR_OK] No error, everything OK";
-    case ERR_MEM: return "[ERR_MEM] Out of memory error";
-    case ERR_BUF: return "[ERR_BUF] Buffer error";
-    case ERR_TIMEOUT: return "[ERR_TIMEOUT] Timeout";
-    case ERR_RTE: return "[ERR_RTE] Routing problem";
-    case ERR_INPROGRESS: return "[ERR_INPROGRESS] Operation in progress";
-    case ERR_VAL: return "[ERR_VAL] Illegal value";
-    case ERR_WOULDBLOCK: return "[ERR_WOULDBLOCK] Operation would block";
-    case ERR_USE: return "[ERR_USE] Address in use";
-    case ERR_ALREADY: return "[ERR_ALREADY] Already connecting";
-    case ERR_ISCONN: return "[ERR_ISCONN] Conn already established";
-    case ERR_CONN: return "[ERR_CONN] Not connected";
-    case ERR_IF: return "[ERR_IF] Low-level netif error";
-    case ERR_ABRT: return "[ERR_ABRT] Connection aborted";
-    case ERR_RST: return "[ERR_RST] Connection reset";
-    case ERR_CLSD: return "[ERR_CLSD] Connection closed";
-    case ERR_ARG: return "[ERR_ARG] Illegal argument";
-    }
-    return "Unknown lwIP error code";
-}
 
 const char *cyw43_describe(int status) {
     switch (status) {
@@ -378,10 +359,10 @@ picoro::Coroutine<void> wifi_connect(async_context_t *context, const char *SSID,
     } led_guard;
 
     cyw43_arch_enable_sta_mode();
-    // const uint32_t ultra_performance_giga_chad_power_mode =
-    //     cyw43_pm_value(CYW43_NO_POWERSAVE_MODE, 20, 1, 1, 1);
-    // cyw43_wifi_pm(&cyw43_state, ultra_performance_giga_chad_power_mode);
-    cyw43_wifi_pm(&cyw43_state, CYW43_PERFORMANCE_PM);
+    const uint32_t ultra_performance_giga_chad_power_mode =
+        cyw43_pm_value(CYW43_NO_POWERSAVE_MODE, 20, 1, 1, 1);
+    cyw43_wifi_pm(&cyw43_state, ultra_performance_giga_chad_power_mode);
+    // cyw43_wifi_pm(&cyw43_state, CYW43_PERFORMANCE_PM);
 
     debug("Connecting to WiFi...\n");
     int rc = cyw43_arch_wifi_connect_async(SSID, password, CYW43_AUTH_WPA2_AES_PSK);
