@@ -194,7 +194,7 @@ Awaiter<Ret> Coroutine<Ret>::operator co_await() {
 template <typename Ret>
 inline
 void Coroutine<Ret>::detach() {
-  promise_->detach();
+  promise_.release()->detach();
 }
 
 // class FinalAwaitable

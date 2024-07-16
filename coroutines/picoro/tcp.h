@@ -3,7 +3,7 @@
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
 
-#include "pico/async_context.h"
+#include "debug.h"
 
 #include <algorithm>
 #include <coroutine>
@@ -38,18 +38,6 @@ namespace picoro {
 
 const char *lwip_describe(err_t error);
 
-void defer(async_context_t *context, std::coroutine_handle<> continuation);
-
-class DeferredContinuation {
-  async_when_pending_worker_t worker_;
-  std::coroutine_handle<> continuation_;
-
-  static void invoke_and_destroy(async_context_t*, async_when_pending_worker_t*);
-
- public:
-  static void create_and_defer(async_context_t *context, std::coroutine_handle<> continuation);
-};
-
 class Listener;
 class Connection;
 class AcceptAwaiter;
@@ -59,7 +47,6 @@ class RecvAwaiter;
 class Listener {
  public:
   struct State {
-    async_context_t *context;
     err_t error;
     tcp_pcb *pcb; // 👾 🤖 PROTOCOL CONTROL BLOCK 🤖 👾
     std::size_t backlog;
@@ -75,7 +62,7 @@ class Listener {
   static err_t on_accept(void *user_data, tcp_pcb *client_pcb, err_t err);
 
  public:
-  explicit Listener(async_context_t *context, int port, int backlog);
+  explicit Listener(int port, int backlog);
   Listener(Listener&&) = default;
   ~Listener();
 
@@ -85,12 +72,11 @@ class Listener {
   err_t error() const;
 };
 
-std::tuple<Listener, err_t> listen(async_context_t *, int port, int backlog);
+std::tuple<Listener, err_t> listen(int port, int backlog);
 
 class Connection {
  public:
   struct State {
-    async_context_t *context;
     tcp_pcb *client_pcb; // 👾 🤖 PROTOCOL CONTROL BLOCK 🤖 👾
     std::string received; // TODO: consider making a `dequeue<char>`
     std::queue<SendAwaiter*> senders;
@@ -105,7 +91,7 @@ class Connection {
   static void on_err(void *user_data, err_t err);
 
  public:
-  explicit Connection(async_context_t *context, tcp_pcb *client_pcb);
+  explicit Connection(tcp_pcb *client_pcb);
   Connection(Connection&&) = default;
   ~Connection();
 
@@ -115,7 +101,7 @@ class Connection {
 };
 
 class AcceptAwaiter {
-  Listener::State *listener_;
+  Listener::State *listener;
   
   tcp_pcb *client_pcb; // 👾 🤖 PROTOCOL CONTROL BLOCK 🤖 👾
   err_t error;
@@ -135,7 +121,7 @@ class RecvAwaiter {
   Connection::State *connection;
   char *destination;
   std::size_t length;
-  std::size_t remaining;
+  std::size_t received;
   err_t error;
   std::coroutine_handle<> continuation;
 
@@ -195,40 +181,11 @@ const char *lwip_describe(err_t error) {
     return "Unknown lwIP error code";
 }
 
-// void defer(async_context_t*, std::coroutine_handle<>)
-// -----------------------------------------------------
-inline
-void defer(async_context_t *context, std::coroutine_handle<> continuation) {
-  DeferredContinuation::create_and_defer(context, continuation);
-}
-
-// class DeferredContinuation
-// --------------------------
-inline
-void DeferredContinuation::create_and_defer(async_context_t *context, std::coroutine_handle<> continuation) {
-  auto *deferred = new DeferredContinuation;
-  deferred->continuation_ = continuation;
-  deferred->worker_.do_work = &DeferredContinuation::invoke_and_destroy;
-  deferred->worker_.user_data = deferred;
-  (void) async_context_add_when_pending_worker(context, &deferred->worker_);
-  async_context_set_work_pending(context, &deferred->worker_);
-}
-
-inline
-void DeferredContinuation::invoke_and_destroy(async_context_t *context, async_when_pending_worker_t *worker) {
-  auto *deferred = static_cast<DeferredContinuation*>(worker->user_data);
-  std::coroutine_handle<> continuation = deferred->continuation_;
-  (void) async_context_remove_when_pending_worker(context, worker);
-  delete deferred;
-  continuation.resume();
-}
-
 // class Listener
 // --------------
 inline
-Listener::Listener(async_context_t *context, int port, int backlog)
+Listener::Listener(int port, int backlog)
 : state_(std::make_unique<Listener::State>()) {
-  state_->context = context;
   state_->error = ERR_OK;
   state_->pcb = nullptr;
   state_->backlog = backlog;
@@ -279,7 +236,7 @@ err_t Listener::close() {
     AcceptAwaiter *accepter = state_->accepters.front();
     state_->accepters.pop();
     accepter->error = ERR_CLSD; // TODO: technically not "connection closed"
-    defer(state_->context, accepter->continuation);
+    accepter->continuation.resume();
   }
   
   // Close our  👾 🤖 PROTOCOL CONTROL BLOCK 🤖 👾.
@@ -300,6 +257,7 @@ err_t Listener::error() const {
 
 inline
 err_t Listener::on_accept(void *user_data, tcp_pcb *client_pcb, err_t error) {
+  debug("in Listener::on_accept\n");
   auto *state = static_cast<Listener::State*>(user_data);
 
   if (!state->accepters.empty()) {
@@ -310,7 +268,7 @@ err_t Listener::on_accept(void *user_data, tcp_pcb *client_pcb, err_t error) {
     } else {
       accepter->client_pcb = client_pcb;
     }
-    defer(state->context, accepter->continuation);
+    accepter->continuation.resume();
     return ERR_OK;
   }
 
@@ -326,8 +284,8 @@ err_t Listener::on_accept(void *user_data, tcp_pcb *client_pcb, err_t error) {
 }
 
 inline
-std::tuple<Listener, err_t> listen(async_context_t *context, int port, int backlog) {
-  Listener listener(context, port, backlog);
+std::tuple<Listener, err_t> listen(int port, int backlog) {
+  Listener listener(port, backlog);
   err_t error = listener.error();
   return {std::move(listener), error};
 }
@@ -336,7 +294,8 @@ std::tuple<Listener, err_t> listen(async_context_t *context, int port, int backl
 // -------------------
 inline
 AcceptAwaiter::AcceptAwaiter(Listener::State *listener)
-: listener_(listener), client_pcb(nullptr), error(ERR_OK) {
+: listener(listener), client_pcb(nullptr), error(ERR_OK) {
+  debug("AcceptAwaiter constructor\n");
   // If the listener has a connection ready for us, then take it.
   // Otherwise, await_ready() will subsequently return false, and then
   // await_suspend() will enqueue us onto listener->accepters.
@@ -346,40 +305,45 @@ AcceptAwaiter::AcceptAwaiter(Listener::State *listener)
 
   client_pcb = listener->unaccepted.front();
   listener->unaccepted.pop();
+  debug("end AcceptAwaiter constructor\n");
 }
 
 inline
 bool AcceptAwaiter::await_ready() {
+  debug("AcceptAwaiter::await_ready()\n");
   return client_pcb != nullptr;
 }
 
 inline
 void AcceptAwaiter::await_suspend(std::coroutine_handle<> continuation) {
+  debug("AcceptAwaiter::await_suspend()\n");
   this->continuation = continuation;
-  listener_->accepters.push(this);
+  listener->accepters.push(this);
 }
 
 inline
 std::tuple<Connection, err_t> AcceptAwaiter::await_resume() {
-  return {Connection(listener_->context, client_pcb), error};
+  debug("AcceptAwaiter::await_resume()\n");
+  return {Connection(client_pcb), error};
 }
 
 
 // class Connection
 // ----------------
 inline
-Connection::Connection(async_context_t *context, tcp_pcb *client_pcb) {
+Connection::Connection(tcp_pcb *client_pcb) {
   if (!client_pcb) {
     return;
   }
   state_ = std::make_unique<Connection::State>();
-  state_->context = context;
   state_->client_pcb = client_pcb;
   
+  debug("Connection::Connection is registering callbacks\n");
   tcp_arg(client_pcb, state_.get());
   tcp_sent(client_pcb, &Connection::on_sent);
   tcp_recv(client_pcb, &Connection::on_recv);
   tcp_err(client_pcb, &Connection::on_err);
+  debug("Connection::Connection finished registering callbacks\n");
 }
 
 inline
@@ -389,6 +353,8 @@ Connection::~Connection() {
 
 inline
 err_t Connection::on_recv(void *user_data, tcp_pcb *, pbuf *buffer, err_t error) {
+  debug("in Connection::on_recv\n");
+  fflush(stdout);
   auto *state = static_cast<Connection::State*>(user_data);
 
   struct Guard {
@@ -397,18 +363,20 @@ err_t Connection::on_recv(void *user_data, tcp_pcb *, pbuf *buffer, err_t error)
       if (buffer) {
         pbuf_free(buffer);
       }
+      debug("finished on_recv\n");
     }
   } guard{buffer};
 
   if (error || buffer == nullptr) {
     // error or connection closed
+    debug("on_recv: error or connection closed. error: %s buffer: %p\n", lwip_describe(error), buffer);
     // TODO: Can `buffer` have data in it if `error != ERR_OK`? If so, should
     // we deliver the data to receivers?
     while (!state->receivers.empty()) {
       RecvAwaiter *receiver = state->receivers.front();
       state->receivers.pop();
       receiver->error = error;
-      defer(state->context, receiver->continuation);
+      receiver->continuation.resume();
     }
     return ERR_OK;
   }
@@ -423,24 +391,22 @@ err_t Connection::on_recv(void *user_data, tcp_pcb *, pbuf *buffer, err_t error)
   const u16_t buffer_offset = 0;
   const u16_t copied = pbuf_copy_partial(buffer, received.data() + old_size, buffer->tot_len, buffer_offset);
   received.resize(old_size + copied);
+  debug("receive buffer is now: %s\n", received.c_str());
   // Deal out data from the beginning of `received` until we're either out of
   // data or out of receivers.
   std::size_t i = 0;
   while (i < received.size() && !state->receivers.empty()) {
     RecvAwaiter *receiver = state->receivers.front();
-    const auto to_copy = std::min<std::size_t>(receiver->remaining, received.size() - i);
+    const auto to_copy = std::min<std::size_t>(receiver->length, received.size() - i);
     std::copy_n(received.begin() + i, to_copy, receiver->destination);
-    receiver->destination += to_copy;
-    receiver->remaining -= to_copy;
     i += to_copy;
-    if (receiver->remaining == 0) {
-      // This receiver has received all of its requested data, and so now can
-      // be resumed.  Also, we can tell lwIP that we've "processed" however
-      // much data the receiver requested.
-      state->receivers.pop();
-      defer(state->context, receiver->continuation);
-      tcp_recved(state->client_pcb, receiver->length);
-    }
+    receiver->received += to_copy;
+    // This receiver has received its requested data, and so now can be
+    // resumed.  Also, we can tell lwIP that we've "processed" however much
+    // data the receiver requested.
+    state->receivers.pop();
+    receiver->continuation.resume();
+    tcp_recved(state->client_pcb, receiver->length);
   }
   received.erase(0, i);
 
@@ -449,6 +415,8 @@ err_t Connection::on_recv(void *user_data, tcp_pcb *, pbuf *buffer, err_t error)
 
 inline
 err_t Connection::on_sent(void *user_data, tcp_pcb *, u16_t length) {
+  debug("in Connection::on_sent. length: %hu\n", length);
+  fflush(stdout);
   auto *state = static_cast<Connection::State*>(user_data);
 
   // Resume any senders that are "filled up" by the client's acknowledgement of
@@ -460,7 +428,7 @@ err_t Connection::on_sent(void *user_data, tcp_pcb *, u16_t length) {
     sender->remaining -= to_ack;
     if (sender->remaining == 0) {
       state->senders.pop();
-      defer(state->context, sender->continuation);
+      sender->continuation.resume();
     }
   }
 
@@ -469,6 +437,7 @@ err_t Connection::on_sent(void *user_data, tcp_pcb *, u16_t length) {
 
 inline
 void Connection::on_err(void *user_data, err_t error) {
+  debug("in Connection::on_err. user_data: %p error: %s\n", user_data, lwip_describe(error));
   auto *state = static_cast<Connection::State*>(user_data);
 
   // The pcb is already freed (per lwIP's documentation), so set it to null in
@@ -476,17 +445,18 @@ void Connection::on_err(void *user_data, err_t error) {
   state->client_pcb = nullptr;
 
   // Convey the error to all senders and all receivers.
-  const auto consume = [error, context = state->context](auto& queue) {
+  const auto consume = [error](auto& queue) {
     while (queue.empty()) {
       auto *awaiter = queue.front();
       queue.pop();
       awaiter->error = error;
-      defer(context, awaiter->continuation);
+      awaiter->continuation.resume();
     }
   };
 
   consume(state->senders);
   consume(state->receivers);
+  debug("end Connection::on_err\n");
 }
 
 inline
@@ -511,17 +481,21 @@ err_t Connection::close() {
     return ERR_CLSD;
   }
 
+  debug("Connection::close() is deregistering callbacks.\n");
+  tcp_sent(client_pcb, nullptr);
+  tcp_recv(client_pcb, nullptr);
+  tcp_err(client_pcb, nullptr);
   const err_t error = tcp_close(state_->client_pcb);
   state_->client_pcb = nullptr;
 
   // Wake up senders and receivers. Deliver a ERR_CLSD (connection closed)
   // error to them.
-  const auto consume = [context = state_->context](auto &queue) {
+  const auto consume = [](auto &queue) {
     while (!queue.empty()) {
       auto *awaiter = queue.front();
       queue.pop();
       awaiter->error = ERR_CLSD;
-      defer(context, awaiter->continuation);
+      awaiter->continuation.resume();
     }
   };
 
@@ -535,39 +509,54 @@ err_t Connection::close() {
 // -----------------
 inline
 RecvAwaiter::RecvAwaiter(Connection::State *connection, char *destination, int size)
-: connection(connection), destination(destination), length(size), remaining(size), error(ERR_OK) {
+: connection(connection), destination(destination), length(size), received(0), error(ERR_OK) {
+  debug("in RecvAwaiter constructor\n");
   // If `connection` is null, we return (0, ERR_CLSD) without suspending.
   if (!connection) {
+    debug("in RecvAwaiter constructor: connection is null\n");
     error = ERR_CLSD;
     return;
   }
 
   // If nobody else is enqueued to consume received data from the connection,
-  // then consume data if it's already available.  If we end up consuming `size`
-  // bytes, then we won't even have to suspend.
+  // then consume data if it's already available.  Then we won't even have to
+  // suspend.
+  // TODO
   if (connection->receivers.empty()) {
+    debug("in RecvAwaiter constructor: no other receivers\n");
     const auto to_consume = std::min<std::size_t>(connection->received.size(), size);
+    debug("RecvAwaiter constructor: going to consume %u bytes\n", to_consume); 
     std::copy_n(connection->received.begin(), to_consume, destination);
-    this->destination += to_consume;
-    remaining -= to_consume;
+    debug("RecvAwaiter constructor: returned from copy_n\n"); 
+    this->received += to_consume;
     connection->received.erase(0, to_consume);
+    debug("RecvAwaiter constructor: erased the relevant prefix of connection->received\n"); 
   }
+
+  debug("at end of RecvAwaiter constructor\n");
 }
 
 inline
 bool RecvAwaiter::await_ready() {
-  return error || remaining == 0;
+  debug("RecvAwaiter::await_ready: %d\n", error || received != 0);
+  return error || received != 0;
 }
 
 void RecvAwaiter::await_suspend(std::coroutine_handle<> continuation) {
+  debug("RecvAwaiter::await_suspend. this: %p, connection: %p\n", this, connection);
+  fflush(stdout);
   this->continuation = continuation;
   assert(connection);
   connection->receivers.push(this);
+  debug("finished RecvAwaiter::await_suspend\n");
+  fflush(stdout);
 }
 
 inline
 std::tuple<int, err_t> RecvAwaiter::await_resume() {
-  return {length - remaining, error};
+  debug("RecvAwaiter::await_resume\n");
+  fflush(stdout);
+  return {received, error};
 }
 
 // class SendAwaiter
@@ -575,6 +564,8 @@ std::tuple<int, err_t> RecvAwaiter::await_resume() {
 inline
 SendAwaiter::SendAwaiter(Connection::State *connection, std::string_view data)
 : connection(connection), length(data.size()), remaining(data.size()), error(ERR_OK) {
+  // TODO: `data` doesn't have to be null-terminated, but it is.
+  debug("in SendAwaiter constructor. connection: %p data.size(): %u data: %s\n", connection, data.size(), data.data());
   // If `connection` is null, we return (0, ERR_CLSD) without suspending.
   if (!connection) {
     error = ERR_CLSD;
@@ -583,20 +574,24 @@ SendAwaiter::SendAwaiter(Connection::State *connection, std::string_view data)
 
   const u8_t flags = TCP_WRITE_FLAG_COPY;
   error = tcp_write(connection->client_pcb, data.data(), data.size(), flags);
+  debug("in SendAwaiter constructor. tcp_write returned %s\n", lwip_describe(error));
   // `tcp_write` enqueues data for sending "later." `tcp_output` actually tries
   // to send the data.
   if (error == ERR_OK) {
     error = tcp_output(connection->client_pcb);
+    debug("in SendAwaiter constructor. tcp_output returned %s\n", lwip_describe(error));
   }
 }
 
 inline
 bool SendAwaiter::await_ready() {
+  debug("in SendAwaiter::await_ready() returning %d\n", error);
   return error;
 }
 
 inline
 void SendAwaiter::await_suspend(std::coroutine_handle<> continuation) {
+  debug("in SendAwaiter::await_suspend()\n");
   this->continuation = continuation;
   assert(connection);
   connection->senders.push(this);
@@ -604,6 +599,7 @@ void SendAwaiter::await_suspend(std::coroutine_handle<> continuation) {
 
 inline
 std::tuple<int, err_t> SendAwaiter::await_resume() {
+  debug("in SendAwaiter::await_resume() returning (%d, %s)\n", length - remaining, lwip_describe(error));
   return {length - remaining, error};
 }
 

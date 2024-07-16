@@ -2,6 +2,8 @@
 
 #include "pico/async_context.h"
 
+#include "debug.h"
+
 namespace picoro {
 //              _.---..._     
 //           ./^         ^-._       
@@ -39,7 +41,11 @@ void run_event_loop(async_context_t *context, Coroutines...) {
   // started, so the `Coroutines...` parameters serve only to provide a place
   // for those coroutine objects to live while the event loop runs.
   for (;;) {
+    debug("{");
+    fflush(stdout); 
     async_context_poll(context);
+    debug("}");
+    fflush(stdout); 
     async_context_wait_for_work_ms(context, 10 * 1000);
   }
 }

@@ -14,21 +14,18 @@
 #include <cmath>
 #include <cstdio>
 
+// TODO
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
 
 #include "picoro/coroutine.h"
 #include "picoro/event_loop.h"
 #include "picoro/sleep.h"
+#include "picoro/tcp.h"
 #include "picoro/drivers/scd4x.h"
 
-// TODO
-#include "picoro/tcp.h"
-
+#include "debug.h"
 #include "secrets.h"
-
-// #define debug(...) printf(__VA_ARGS__)
-#define debug(...) do {} while (false)
 
 const char *cyw43_describe(int status) {
     switch (status) {
@@ -143,13 +140,13 @@ err_t send_response(Client& client, tcp_pcb *client_pcb) {
     const u8_t flags = 0;
     err_t err = tcp_write(client_pcb, client.response_buffer.data(), client.response_length, flags);
     if (err) {
-        debug("tcp_write error: %s\n", lwip_describe(err));
+        debug("tcp_write error: %s\n", picoro::lwip_describe(err));
         return err;
     }
 
     err = tcp_output(client_pcb); 	
     if (err) {
-        debug("tcp_output error: %s\n", lwip_describe(err));
+        debug("tcp_output error: %s\n", picoro::lwip_describe(err));
     }
 
     return err;
@@ -165,7 +162,7 @@ err_t cleanup_connection(Client *client, tcp_pcb *client_pcb) {
 
     err_t err = tcp_close(client_pcb);
     if (err) {
-        debug("tcp_close error: %s\n", lwip_describe(err));
+        debug("tcp_close error: %s\n", picoro::lwip_describe(err));
     }
     return err;
 }
@@ -183,7 +180,7 @@ err_t on_sent(void *arg, tcp_pcb *client_pcb, u16_t len) {
 
 err_t on_recv(void *arg, tcp_pcb *client_pcb, pbuf *buf, err_t err) {
     if (err) {
-        debug("on_recv error: %s\n", lwip_describe(err));
+        debug("on_recv error: %s\n", picoro::lwip_describe(err));
         if (buf) {
             pbuf_free(buf);
         }
@@ -196,7 +193,7 @@ err_t on_recv(void *arg, tcp_pcb *client_pcb, pbuf *buf, err_t err) {
     }
 
     if (buf->tot_len > 0) {
-        debug("tcp_server_recv %d bytes. status: %s\n", buf->tot_len, lwip_describe(err));
+        debug("tcp_server_recv %d bytes. status: %s\n", buf->tot_len, picoro::lwip_describe(err));
         tcp_recved(client_pcb, buf->tot_len);
     }
     pbuf_free(buf);
@@ -205,13 +202,13 @@ err_t on_recv(void *arg, tcp_pcb *client_pcb, pbuf *buf, err_t err) {
 }
 
 void on_err(void *arg, err_t err) {
-    debug("Connection fatal error: %s\n", lwip_describe(err));
+    debug("Connection fatal error: %s\n", picoro::lwip_describe(err));
     delete static_cast<Client*>(arg);
 }
 
 err_t on_accept(void *arg, tcp_pcb *client_pcb, err_t err) {
     if (err || client_pcb == NULL) {
-        debug("Failed to accept a connection: %s\n", lwip_describe(err));
+        debug("Failed to accept a connection: %s\n", picoro::lwip_describe(err));
         return ERR_VAL; // Is this the appropriate return value?
     }
     debug("Client connected.\n");
@@ -225,7 +222,7 @@ err_t on_accept(void *arg, tcp_pcb *client_pcb, err_t err) {
     return send_response(*client, client_pcb);
 }
 
-void setup_http_server(u16_t port) {
+void setup_http_server(u16_t port, u8_t backlog) {
     debug("Starting server at %s on port %u\n", ip4addr_ntoa(netif_ip4_addr(netif_list)), port);
 
     tcp_pcb *pcb = tcp_new_ip_type(IPADDR_TYPE_ANY);
@@ -236,14 +233,13 @@ void setup_http_server(u16_t port) {
 
     err_t err = tcp_bind(pcb, IP_ADDR_ANY, port);
     if (err) {
-        debug("Failed to bind to port %u: %s\n", port, lwip_describe(err));
+        debug("Failed to bind to port %u: %s\n", port, picoro::lwip_describe(err));
         return;
     }
 
-    const u8_t backlog = 1;
     pcb = tcp_listen_with_backlog_and_err(pcb, backlog, &err);
     if (!pcb) {
-        debug("Failed to listen: %s\n", lwip_describe(err));
+        debug("Failed to listen: %s\n", picoro::lwip_describe(err));
         return;
     }
 
@@ -418,35 +414,48 @@ picoro::Coroutine<void> wifi_watchdog(async_context_t *context) {
 }
 
 picoro::Coroutine<void> handle_client(picoro::Connection conn) {
-    // TODO: Figure out what to do with recv()d data.
-    co_await conn.send("HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\nYay!\n");
-    conn.close();
-}
-
-picoro::Coroutine<void> http_server(async_context_t *context, int port, int listen_backlog) {
-    auto [listener, err] = picoro::listen(context, port, listen_backlog);
+    debug("in handle_client(...), about to await recv()\n");
+    char buffer[1024];
+    auto [count, err] = co_await conn.recv(buffer, sizeof buffer);
+    debug("in handle_client(...), received %d bytes with error %s\n", count, picoro::lwip_describe(err));
     if (err) {
-        debug("Error starting server: %s\n", lwip_describe(err));
+        debug("in handle_client(...), since there was an error, I'm closing the connection and returning.\n");
         co_return;
     }
+    debug("in handle_client(...), about to await send()\n");
+    std::tie(count, err) = co_await conn.send("HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\nYay!\n");
+    debug("handle_client(...), finished send(). Sent %d bytes with error %s. About to close and return.\n", count, picoro::lwip_describe(err));
+}
+
+picoro::Coroutine<void> http_server(int port, int listen_backlog) {
+    debug("http_server: Starting server at %s on port %d\n", ip4addr_ntoa(netif_ip4_addr(netif_list)), port);
+    auto [listener, err] = picoro::listen(port, listen_backlog);
+    if (err) {
+        debug("http_server: Error starting server: %s\n", picoro::lwip_describe(err));
+        co_return;
+    }
+    debug("http_server: server started\n");
 
     for (;;) {
+    // for (int i = 0; i < 1; ++i) {
+        debug("http_server: about to await accept()\n");
         auto [conn, err] = co_await listener.accept();
         if (err) {
-            debug("Error accepting connection: %s\n", lwip_describe(err));
+            debug("http_server: Error accepting connection: %s\n", picoro::lwip_describe(err));
             continue;
         }
+        debug("http_server: accept()ed a connection\n");
         handle_client(std::move(conn)).detach();
     }
 }
 
 picoro::Coroutine<void> networking(async_context_t *context) {
     co_await wifi_connect(context, "Annoying Saxophone", wifi_password);
-    // setup_http_server(80);
     const int port = 80;
     const int listen_backlog = 1;
-    http_server(context, port, listen_backlog).detach();
-    co_await wifi_watchdog(context);
+    // setup_http_server(port, listen_backlog);
+    co_await http_server(port, listen_backlog);
+    // co_await wifi_watchdog(context);
 }
 
 picoro::Coroutine<void> coroutine_main(async_context_t *context) {

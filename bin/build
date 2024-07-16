@@ -10,7 +10,7 @@ fi
 src=${1%/}
 out="$src/build-bin"
 
-if [ "$1" = 'clean' ]; then
+if [ "$2" = 'clean' ]; then
   rm -rf "$out"
   exit
 fi
@@ -23,6 +23,6 @@ fi
 mkdir -p "$out"
 
 cd "$out"
-cmake ..
+cmake -DCMAKE_BUILD_TYPE=Debug ..
 make -j "$(nproc)" # VERBOSE=1
 printf '\nBuild exited with status %s\n' "$?"
