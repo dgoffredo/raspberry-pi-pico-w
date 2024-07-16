@@ -417,9 +417,35 @@ picoro::Coroutine<void> wifi_watchdog(async_context_t *context) {
     }
 }
 
+picoro::Coroutine<void> handle_client(picoro::Connection conn) {
+    // TODO: Figure out what to do with recv()d data.
+    co_await conn.send("HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\nYay!\n");
+    conn.close();
+}
+
+picoro::Coroutine<void> http_server(async_context_t *context, int port, int listen_backlog) {
+    auto [listener, err] = picoro::listen(context, port, listen_backlog);
+    if (err) {
+        debug("Error starting server: %s\n", lwip_describe(err));
+        co_return;
+    }
+
+    for (;;) {
+        auto [conn, err] = co_await listener.accept();
+        if (err) {
+            debug("Error accepting connection: %s\n", lwip_describe(err));
+            continue;
+        }
+        handle_client(std::move(conn)).detach();
+    }
+}
+
 picoro::Coroutine<void> networking(async_context_t *context) {
     co_await wifi_connect(context, "Annoying Saxophone", wifi_password);
-    setup_http_server(80);
+    // setup_http_server(80);
+    const int port = 80;
+    const int listen_backlog = 1;
+    http_server(context, port, listen_backlog).detach();
     co_await wifi_watchdog(context);
 }
 

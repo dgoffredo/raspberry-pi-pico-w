@@ -74,6 +74,8 @@ class Coroutine {
   Coroutine(const Coroutine&) = delete;
 
   Awaiter<Ret> operator co_await();
+  
+  void detach();
 };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -187,6 +189,12 @@ template <typename Ret>
 inline
 Awaiter<Ret> Coroutine<Ret>::operator co_await() {
   return Awaiter<Ret>(promise_.get());
+}
+
+template <typename Ret>
+inline
+void Coroutine<Ret>::detach() {
+  promise_->detach();
 }
 
 // class FinalAwaitable
