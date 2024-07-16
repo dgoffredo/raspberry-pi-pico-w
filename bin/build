@@ -20,10 +20,15 @@ if ! [ -d "$src" ]; then
   exit 2
 fi
 
+if [ "$2" = debug ]; then
+  build_type=Debug
+else
+  build_type=Release
+fi
+
 mkdir -p "$out"
 
 cd "$out"
-# cmake -DCMAKE_BUILD_TYPE=Debug ..
-cmake -DCMAKE_BUILD_TYPE=Release ..
-make -j "$(nproc)" # VERBOSE=1
+cmake "-DCMAKE_BUILD_TYPE=$build_type" ..
+make -j "$(nproc)"
 printf '\nBuild exited with status %s\n' "$?"

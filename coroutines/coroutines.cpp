@@ -1,6 +1,7 @@
 #include "pico/async_context_poll.h"
 #include "pico/binary_info.h"
 #include "pico/cyw43_arch.h"
+#include "pico/lwip_nosys.h" // TODO?
 #include "pico/stdlib.h"
 #include <tusb.h>
 
@@ -8,11 +9,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
 #include <cmath>
 #include <cstdio>
+#include <iterator>
 
 #include "picoro/coroutine.h"
 #include "picoro/event_loop.h"
@@ -291,13 +294,14 @@ picoro::Coroutine<void> wifi_watchdog(async_context_t *context) {
 
 picoro::Coroutine<void> handle_client(picoro::Connection conn) {
     debug("in handle_client(...), about to await recv()\n");
-    std::array<char, max_response_length + 1> buffer;
-    auto [count, err] = co_await conn.recv(buffer.data(), buffer.size());
+    char readbuf[2048];
+    auto [count, err] = co_await conn.recv(readbuf, sizeof readbuf);
     debug("in handle_client(...), received %d bytes with error %s\n", count, picoro::lwip_describe(err));
     if (err) {
-        debug("in handle_client(...), since there was an error, I'm closing the connection and returning.\n");
-        co_return;
+      debug("in handle_client(...), since there was an error, I'm closing the connection and returning.\n");
+      co_return;
     }
+    std::array<char, max_response_length + 1> buffer;
     debug("in handle_client(...), about to format response and await send()\n");
     count = format_response(buffer, latest);
     std::tie(count, err) = co_await conn.send(std::string_view(buffer.data(), count));
@@ -355,6 +359,7 @@ int main() {
     // Do some WiFi chip setup here, just so that we can use the LED
     // immediately. The rest of the setup happens in `coroutine_main`.
     cyw43_arch_set_async_context(&context.core);
+    lwip_nosys_init(&context.core);
     // 🇺🇸 🦅
     if (cyw43_arch_init_with_country(CYW43_COUNTRY_USA)) {
         debug("failed to initialize WiFi\n");
@@ -364,6 +369,7 @@ int main() {
     run_event_loop(&context.core, coroutine_main(&context.core));
 
     // unreachable
+    lwip_nosys_deinit(&context.core);
     cyw43_arch_deinit();
     async_context_deinit(&context.core);
 }

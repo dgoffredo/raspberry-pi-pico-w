@@ -29,10 +29,11 @@ target_include_directories(coroutines PRIVATE
         )
 
 target_link_libraries(coroutines
-        pico_stdlib
-        pico_cyw43_arch_lwip_poll
         hardware_i2c
         pico_async_context_poll
+        pico_cyw43_arch_lwip_poll
+        pico_lwip_nosys # TODO?
+        pico_stdlib
         )
 
 # create map/bin/hex file etc.
