@@ -23,23 +23,36 @@ struct Reading {
 
 void read_from_dht(uint gpio_pin, Reading *result);
 
+struct Sensor {
+    uint gpio_pin;
+    bool pull_up;
+};
+
 inline
 int demo() {
-    const uint pins[] = {15, 16, 22};
-    for (const uint pin : pins) {
-      gpio_init(pin);
-      gpio_pull_up(pin);
+    const Sensor sensors[] = {
+        {.gpio_pin=15, .pull_up=true},
+        {.gpio_pin=16, .pull_up=true},
+        {.gpio_pin=22, .pull_up=true},
+    };
+    for (const Sensor& sensor : sensors) {
+      gpio_init(sensor.gpio_pin);
+      if (sensor.pull_up) {
+          gpio_pull_up(sensor.gpio_pin);
+      }
     }
     for (;;) {
-        for (const uint pin : pins) {
+        for (const Sensor& sensor : sensors) {
             Reading reading = {};
-            printf("pin %u\n", pin);
-            read_from_dht(pin, &reading);
+            // printf("pin %u\n", sensor.gpio_pin);
+            read_from_dht(sensor.gpio_pin, &reading);
             float fahrenheit = (reading.celsius * 9 / 5) + 32;
-            printf("\tHumidity = %.1f%%, Temperature = %.1fC (%.1fF)\n",
-               reading.humidity, reading.celsius, fahrenheit);
-            sleep_ms(2000);
+            // printf("\tHumidity = %.1f%%, Temperature = %.1fC (%.1fF)\n",
+            //    reading.humidity, reading.celsius, fahrenheit);
+            printf("{\"pin\": %u, \"humidity_percent\": %.1f, \"celsius\": %.1f, \"fahrenheit\": %.1f}\n",
+               sensor.gpio_pin, reading.humidity, reading.celsius, fahrenheit);
         }
+        sleep_ms(2000);
     }
 }
 
@@ -86,12 +99,12 @@ void read_from_dht(uint gpio_pin, Reading *result) {
         }
     }
 
-    printf("\tData is 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x\n",
+    /*printf("\tData is 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x\n",
       (unsigned)data[0],
       (unsigned)data[1],
       (unsigned)data[2],
       (unsigned)data[3],
-      (unsigned)data[4]);
+      (unsigned)data[4]);*/
 
     if (j >= 40 && data[4] == checksum()) {
         result->humidity = (float) ((data[0] << 8) + data[1]) / 10;
@@ -106,12 +119,12 @@ void read_from_dht(uint gpio_pin, Reading *result) {
             result->celsius = -result->celsius;
         }
     } else if (j < 40) {
-        printf("\tBad data: Expected 40 bits but received %d\n", j);
+        // printf("\tBad data: Expected 40 bits but received %d\n", j);
     } else {
-        printf("\tBad data: Received checksum %d that doesn't match calculated %d\n", data[4], checksum());
+        // printf("\tBad data: Received checksum %d that doesn't match calculated %d\n", data[4], checksum());
     }
 
-    printf("\tsignal history: %s\n", debug_buffer);
+    // printf("\tsignal history: %s\n", debug_buffer);
 }
 
 } // namespace dht
