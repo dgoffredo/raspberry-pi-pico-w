@@ -23,9 +23,21 @@ add_executable(dht22
 set_source_files_properties(dht.cpp dht.h
         PROPERTIES COMPILE_OPTIONS -fcoroutines -Wextra -pedantic)
 
+# Make our lwipopts.h visible to lwip, which includes it.
+target_include_directories(dht22 PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/lwipopts
+        )
+
 target_link_libraries(dht22
+        dht_pio
+        picoro
+        pico_async_context_poll
+        pico_cyw43_arch_lwip_poll
         pico_stdlib
         )
+
+add_subdirectory(picoro)
+add_subdirectory(dht-pio)
 
 # create map/bin/hex file etc.
 pico_add_extra_outputs(dht22)

@@ -9,8 +9,14 @@
 #include <stdio.h>
 #include <math.h>
 
+#include <chrono>
+
+#include <pico/async_context.h>
 #include <pico/stdlib.h>
 #include <hardware/gpio.h>
+
+#include <picoro/coroutine.h>
+#include <picoro/sleep.h>
 
 namespace dht {
 
@@ -29,7 +35,7 @@ struct Sensor {
 };
 
 inline
-int demo() {
+picoro::Coroutine<void> demo(async_context_t *context) {
     const Sensor sensors[] = {
         {.gpio_pin=15, .pull_up=true},
         {.gpio_pin=16, .pull_up=true},
@@ -52,7 +58,7 @@ int demo() {
             printf("{\"pin\": %u, \"humidity_percent\": %.1f, \"celsius\": %.1f, \"fahrenheit\": %.1f}\n",
                sensor.gpio_pin, reading.humidity, reading.celsius, fahrenheit);
         }
-        sleep_ms(2000);
+        co_await picoro::sleep_for(context, std::chrono::seconds(2));
     }
 }
 
