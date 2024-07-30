@@ -5,6 +5,7 @@
 #include "pico/stdlib.h"
 #include <tusb.h>
 
+#include <malloc.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -70,14 +71,24 @@ void tick_wifi_status(int state) {
 }
 
 struct Measurement {
-    unsigned sequence_number = 0; 
+    unsigned sequence_number = 0;
     uint16_t co2_ppm = 0;
     int32_t temperature_millicelsius = 0;
     int32_t relative_humidity_millipercent = 0;
 } latest;
 
-// TODO: Need to recalculate this. For now I fudge it up to 255.
-constexpr std::size_t max_response_length = 255;
+// TODO: Need to recalculate this. For now I fudge it up to 511.
+constexpr std::size_t max_response_length = 511;
+
+uint32_t get_total_heap() {
+   extern char __StackLimit, __bss_end__;
+   return &__StackLimit  - &__bss_end__;
+}
+
+uint32_t get_free_heap() {
+   struct mallinfo const m = mallinfo();
+   return get_total_heap() - m.uordblks;
+}
 
 int format_response(
     // +1 for the null terminator
@@ -104,8 +115,11 @@ int format_response(
         " \"CO2_ppm\": %hu,"
         " \"temperature_celsius\": %ld.%03ld,"
         " \"relative_humidity_percent\": %ld.%03ld,"
+        " \"free_bytes\": %lu,"
         " \"wifi_status_counts\": [%d, %d, %d, %d, %d, %d, %d]}";
-    
+
+    const uint32_t free_bytes = get_free_heap();
+
     return std::snprintf(
         buffer.data(),
         buffer.size(),
@@ -116,6 +130,7 @@ int format_response(
         std::abs(data.temperature_millicelsius) % 1000,
         data.relative_humidity_millipercent / 1000,
         std::abs(data.relative_humidity_millipercent) / 1000,
+        free_bytes,
         wifi_status_counts[0],
         wifi_status_counts[1],
         wifi_status_counts[2],
@@ -184,14 +199,14 @@ picoro::Coroutine<void> monitor_scd4x(async_context_t *context) {
     rc = co_await sensor.start_periodic_measurement();
     if (rc) {
         debug("Unable to start periodic measurement mode. Error code %d.\n", rc);
-    } 
+    }
 
     for (;;) {
         co_await picoro::sleep_for(context, std::chrono::seconds(5));
         while (! co_await data_ready(sensor)) {
             co_await picoro::sleep_for(context, std::chrono::seconds(1));
         }
-        
+
         uint16_t co2_ppm;
         int32_t temperature_millicelsius;
         int32_t relative_humidity_millipercent;
