@@ -4,3 +4,6 @@
 [submodule "embedded-i2c-scd4x"]
 	path = embedded-i2c-scd4x
 	url = git@github.com:dgoffredo/embedded-i2c-scd4x.git
+[submodule "dht22/picoro"]
+	path = dht22/picoro
+	url = git@github.com:/dgoffredo/picoro.git
