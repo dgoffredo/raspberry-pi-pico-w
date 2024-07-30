@@ -62,14 +62,14 @@ static void dht_program_init(PIO pio, uint sm, uint offset, dht_model_t model, u
 static void configure_dma_channel(uint chan, PIO pio, uint sm, uint8_t *write_addr) {
     dma_channel_config c = dma_channel_get_default_config(chan);
     channel_config_set_dreq(&c, pio_get_dreq(pio, sm, false /* is_tx */));
-    channel_config_set_irq_quiet(&c, true);
+    // TODO channel_config_set_irq_quiet(&c, true);
     channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
     channel_config_set_read_increment(&c, false);
     channel_config_set_write_increment(&c, true);
     dma_channel_configure(chan, &c, write_addr, &pio->rxf[sm], 5, true /* trigger */);
 }
 
-static float decode_temperature(dht_model_t model, uint8_t b0, uint8_t b1) {
+float decode_temperature(dht_model_t model, uint8_t b0, uint8_t b1) {
     float temperature;
     switch (model) {
     case DHT11:
@@ -86,32 +86,28 @@ static float decode_temperature(dht_model_t model, uint8_t b0, uint8_t b1) {
             temperature = -temperature;
         }
         break;
-    case DHT21:
-    case DHT22:
+    default:
+        assert(model == DHT21 || model == DHT22);
         temperature = 0.1f * (((b0 & 0x7F) << 8) + b1);
         if (b0 & 0x80) {
             temperature = -temperature;
         }
         break;
-    default:
-        assert(false); // invalid model
     }
     return temperature;
 }
 
-static float decode_humidity(dht_model_t model, uint8_t b0, uint8_t b1) {
+float decode_humidity(dht_model_t model, uint8_t b0, uint8_t b1) {
     float humidity;
     switch (model) {
     case DHT11:
     case DHT12:
         humidity = b0 + 0.1f * b1;
         break;
-    case DHT21:
-    case DHT22:
+    default:
+        assert(model == DHT21 || model == DHT22);
         humidity = 0.1f * ((b0 << 8) + b1);
         break;
-    default:
-        assert(false); // invalid model
     }
     return humidity;
 }

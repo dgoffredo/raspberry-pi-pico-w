@@ -34,6 +34,7 @@ target_link_libraries(dht22
         pico_async_context_poll
         pico_cyw43_arch_lwip_poll
         pico_stdlib
+        hardware_dma
         )
 
 add_subdirectory(picoro)

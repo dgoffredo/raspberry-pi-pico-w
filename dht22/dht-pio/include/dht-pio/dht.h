@@ -34,7 +34,7 @@ typedef enum dht_model_t {
  */
 typedef struct dht_t {
     PIO pio;
-    uint8_t model;
+    dht_model_t model;
     uint8_t pio_program_offset;
     uint8_t sm;
     uint8_t dma_chan;
@@ -54,10 +54,10 @@ typedef enum dht_result_t {
 
 /**
  * \brief Initialize DHT sensor.
- * 
+ *
  * The library claims one state machine from the given PIO instance, and one DMA
  * channel to communicate with the sensor.
- * 
+ *
  * \param dht DHT sensor.
  * \param model DHT sensor model.
  * \param pio PIO block to use (pio0 or pio1).
@@ -78,10 +78,10 @@ void dht_deinit(dht_t *dht);
  *
  * The measurement runs in the background, and may take up to 25ms depending
  * on DHT model.
- * 
+ *
  * DHT sensors typically need at least 2 seconds between measurements for
  * accurate results.
- * 
+ *
  * \param dht DHT sensor.
  */
 void dht_start_measurement(dht_t *dht);
@@ -95,6 +95,11 @@ void dht_start_measurement(dht_t *dht);
  * \return Result status.
  */
 dht_result_t dht_finish_measurement_blocking(dht_t *dht, float *humidity, float *temperature_c);
+
+// TODO
+float decode_temperature(dht_model_t model, uint8_t b0, uint8_t b1);
+// TODO
+float decode_humidity(dht_model_t model, uint8_t b0, uint8_t b1);
 
 #ifdef __cplusplus
 }

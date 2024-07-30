@@ -9,6 +9,8 @@
 #include <pico/async_context_poll.h>
 #include <pico/cyw43_arch.h>
 
+#include <hardware/dma.h>
+
 #include <picoro/coroutine.h>
 #include <picoro/event_loop.h>
 #include <picoro/sleep.h>
@@ -39,39 +41,87 @@ float celsius_to_fahrenheit(float temperature) {
     return temperature * (9.0f / 5) + 32;
 }
 
-/* TODO
 
-int dma_chan;
+struct DMAInterrupt {
+    static uint channel;
+    static async_context_t *context;
+    static async_when_pending_worker_t worker;
+    static std::coroutine_handle<> continuation;
 
-void dma_irq0_handler() {
-    // TODO: thing
-    constexpr uint which_dma_irq = 0;
-    dma_irqn_acknowledge_channel(which_dma_irq, dma_chan);
+    static void irq0_handler() {
+        async_context_set_work_pending(DMAInterrupt::context, &DMAInterrupt::worker);
+
+        constexpr uint which_dma_irq = 0;
+        dma_irqn_acknowledge_channel(which_dma_irq, DMAInterrupt::channel);
+    }
+
+    static void setup(async_context_t *context, dht_t *dht) {
+        DMAInterrupt::context = context;
+        DMAInterrupt::worker.do_work = &DMAInterrupt::do_work;
+        async_context_add_when_pending_worker(context, &DMAInterrupt::worker);
+
+        DMAInterrupt::channel = dht->dma_chan;
+        dma_channel_set_irq0_enabled(DMAInterrupt::channel, true);
+        irq_add_shared_handler(DMA_IRQ_0, &DMAInterrupt::irq0_handler, PICO_SHARED_IRQ_HANDLER_DEFAULT_ORDER_PRIORITY);
+        irq_set_enabled(DMA_IRQ_0, true);
+    }
+
+    static void do_work(async_context_t*, async_when_pending_worker_t*) {
+        DMAInterrupt::continuation.resume();
+    }
+
+    struct Awaiter {
+        bool await_ready() {
+            return false;
+        }
+
+        bool await_suspend(std::coroutine_handle<> continuation) {
+            DMAInterrupt::continuation = continuation;
+            return true;
+        }
+
+        void await_resume() {}
+    };
+};
+
+uint DMAInterrupt::channel = 0;
+async_context_t *DMAInterrupt::context = nullptr;
+async_when_pending_worker_t DMAInterrupt::worker = {};
+std::coroutine_handle<> DMAInterrupt::continuation;
+
+picoro::Coroutine<dht_result_t> dht_finish_measurement(dht_t *dht, float *humidity, float *temperature_c) {
+    assert(dht->pio != NULL); // not initialized
+    // assert(pio_sm_is_enabled(dht->pio, dht->sm)); // no measurement in progress
+
+    co_await DMAInterrupt::Awaiter{};
+
+    pio_sm_set_enabled(dht->pio, dht->sm, false);
+    // make sure pin is left in hi-z mode
+    pio_sm_exec(dht->pio, dht->sm, pio_encode_set(pio_pindirs, 0));
+
+    const uint8_t checksum = dht->data[0] + dht->data[1] + dht->data[2] + dht->data[3];
+    if (dht->data[4] != checksum) {
+        co_return DHT_RESULT_BAD_CHECKSUM;
+    }
+    // #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+    *humidity = decode_humidity(dht->model, dht->data[0], dht->data[1]);
+    *temperature_c = decode_temperature(dht->model, dht->data[2], dht->data[3]);
+    co_return DHT_RESULT_OK;
 }
-
-...
-
-    // Tell the DMA to raise IRQ line 0 when the channel finishes a block
-    dma_channel_set_irq0_enabled(dma_chan, true);
-
-    // Configure the processor to run dma_handler() when DMA IRQ 0 is asserted
-    irq_set_exclusive_handler(DMA_IRQ_0, dma_handler);
-    irq_set_enabled(DMA_IRQ_0, true);
-*/
 
 picoro::Coroutine<void> pio_main(async_context_t *context) {
     dht_t dht;
     dht_init(&dht, DHT_MODEL, pio0, DATA_PIN, true /* pull_up */);
+    DMAInterrupt::setup(context, &dht);
+
     for (int i = 0; i < 10; ++i) {
         dht_start_measurement(&dht);
 
         float humidity;
         float temperature_c;
-        dht_result_t result = dht_finish_measurement_blocking(&dht, &humidity, &temperature_c);
+        dht_result_t result = co_await dht_finish_measurement(&dht, &humidity, &temperature_c);
         if (result == DHT_RESULT_OK) {
             printf("%.1f C (%.1f F), %.1f%% humidity\n", temperature_c, celsius_to_fahrenheit(temperature_c), humidity);
-        } else if (result == DHT_RESULT_TIMEOUT) {
-            puts("DHT sensor not responding. Please check your wiring.");
         } else {
             assert(result == DHT_RESULT_BAD_CHECKSUM);
             puts("Bad checksum");
