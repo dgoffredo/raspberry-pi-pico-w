@@ -114,7 +114,9 @@ picoro::Coroutine<void> pio_main(async_context_t *context) {
     dht_init(&dht, DHT_MODEL, pio0, DATA_PIN, true /* pull_up */);
     DMAInterrupt::setup(context, &dht);
 
-    for (int i = 0; i < 10; ++i) {
+    // for (int i = 0; i < 10; ++i) {
+    for (;;) {
+        co_await picoro::sleep_for(context, std::chrono::seconds(2));
         dht_start_measurement(&dht);
 
         float humidity;
@@ -126,9 +128,8 @@ picoro::Coroutine<void> pio_main(async_context_t *context) {
             assert(result == DHT_RESULT_BAD_CHECKSUM);
             puts("Bad checksum");
         }
-
-        co_await picoro::sleep_for(context, std::chrono::seconds(2));
     }
+
     dht_deinit(&dht);
 }
 
@@ -145,10 +146,12 @@ int main() {
     // immediately. The rest of the setup happens in `networking`.
     cyw43_arch_set_async_context(&context.core);
     // 🇺🇸 🦅
+    /* TODO: no WiFi for now.
     if (cyw43_arch_init_with_country(CYW43_COUNTRY_USA)) {
         printf("failed to initialize WiFi\n");
         return -2;
     }
+    */
 
     picoro::run_event_loop(&context.core,
         // dht::demo(&context.core),
@@ -156,6 +159,6 @@ int main() {
         pio_main(&context.core));
 
     // unreachable
-    cyw43_arch_deinit();
+    // TODO: no WiFi for now: cyw43_arch_deinit();
     async_context_deinit(&context.core);
 }
