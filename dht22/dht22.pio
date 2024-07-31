@@ -1,32 +1,34 @@
+; vi: filetype=asm
 .program dht22
 
 start:
-  ; Pop x from the FIFO. Should have value 40.
-  ; x will be used to keep track of how many bits to receive (40).
+  ; Synchronize with the CPU by popping a word from the FIFO.
+  ; The word should be `(1000 << 16) | 40`:
+  ; - The high order 16 bits is the amount of cycles to drive the pin down to
+  ;   issue a data request to the sensor (1000).
+  ; - The low order 16 bits is the amount of bits to receive from the sensor
+  ;   (40).
+  ; The low order bits go into x (40), and the high order bits go into y (1000).
   pull
-  mov x, osr
-  ; Pop y from the FIFO. Should have value 1000.
-  ; y will be used to hold the GPIO pin down for that many cycles.
-  pull
-  mov y, osr
+  out x, 16
+  out y, 16
   ; Set GPIO pin to write (output) mode.
   set pindirs 1
-  ; Hold pin low to request data from the sensor.
+  ; Drive pin low to request data from the sensor.
   set pins 0
   ; Spin until y is zero. At one cycle per instruction and an assumed PIO clock
   ; of 1 MHz, that's 1000 μs.
 request_timing_loop:
   jmp y-- request_timing_loop
   ; Set GPIO pin to read (input) mode. Since the pin has an internal pull up
-  ; resistor, this will cause the pin's value to go to 1.
+  ; resistor, this will cause the pin's value to go high.
   set pindirs 0
-  ; The sensor will acknowledge our request by first pulling the pin down and
-  ; then pulling it up again.
+  ; The sensor will acknowledge our request by first driving the pin low and
+  ; then driving it high again.
   wait 0 pin 0
   wait 1 pin 0
-  ; The sensor starts each bit by pulling the pin down.
+  ; The sensor starts each bit by driving the pin low.
 .wrap_target
-before_bit:
   wait 0 pin 0
 begin_bit:
   ; Before we receive the bit, see if we have already received all of the bits
@@ -35,21 +37,21 @@ begin_bit:
   jmp x-- not_done
   jmp start
 not_done:
-  ; The sensor encodes each bit in the amount of time it holds the pin up
-  ; before pulling it back down.
-  ; If the sensor holds the pin up for 22 to 30 μs, that's a "0" bit.
-  ; If the sensor holds the pin up for 68 to 75 μs, that's a "1" bit.
+  ; The sensor encodes each bit in the amount of time it drives the pin high
+  ; before driving it back low.
+  ; If the sensor drives the pin high for 22 to 30 μs, that's a "0" bit.
+  ; If the sensor drives the pin high for 68 to 75 μs, that's a "1" bit.
   ; We distinguish between the two by waiting for 40 μs. If the pin has
-  ; gone down before then, that's a "0" bit. If it has not, that's a "1" bit.
+  ; gone low before then, that's a "0" bit. If it has not, that's a "1" bit.
   ; Assume that the PIO clock is set at 1 MHz, so one cycle is one μs.
   ; We use delay on two instructions to make the pair of instructions
   ; take a total of 10 cycles. We do this up to four times, for a total of
   ; 40 μs.
   ; The jump pin is configured to be the same GPIO pin used by the "wait" and
   ; "set" instructions.
-  ; The y register holds the countdown.
-  set y, 4
-  ; The pin is still low as part of the sensor's premble to each bit.  Wait for
+  ; The y register holds the countdown: 3, 2, 1, 0.
+  set y, 3
+  ; The pin is still low as part of the sensor's preamble to each bit. Wait for
   ; the pin to go high so that we can begin counting.
   wait 1 pin 0
 bit_value:

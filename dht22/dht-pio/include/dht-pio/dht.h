@@ -48,7 +48,7 @@ typedef struct dht_t {
  */
 typedef enum dht_result_t {
     DHT_RESULT_OK, /**< No error.*/
-    DHT_RESULT_TIMEOUT, /**< DHT sensor not reponding. */
+    DHT_RESULT_TIMEOUT, /**< DHT sensor not responding. */
     DHT_RESULT_BAD_CHECKSUM, /**< Sensor data doesn't match checksum. */
 } dht_result_t;
 

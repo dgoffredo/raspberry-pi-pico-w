@@ -1,4 +1,5 @@
-#include "dht.h"
+#include "dht22.h"
+#include "dht22.pio.h"
 #include <dht-pio/dht.h>
 
 #include <stdlib.h>
@@ -9,6 +10,7 @@
 #include <pico/async_context_poll.h>
 #include <pico/cyw43_arch.h>
 
+#include <hardware/clocks.h>
 #include <hardware/dma.h>
 
 #include <picoro/coroutine.h>
@@ -51,7 +53,7 @@ struct DMAInterrupt {
     static void irq0_handler() {
         async_context_set_work_pending(DMAInterrupt::context, &DMAInterrupt::worker);
 
-        constexpr uint which_dma_irq = 0;
+        const uint which_dma_irq = 0;
         dma_irqn_acknowledge_channel(which_dma_irq, DMAInterrupt::channel);
     }
 
@@ -109,9 +111,82 @@ picoro::Coroutine<dht_result_t> dht_finish_measurement(dht_t *dht, float *humidi
     co_return DHT_RESULT_OK;
 }
 
+void dht22_measure_blocking(PIO pio, uint state_machine, float *celsius, float *humidity_percent) {
+    // Push some counters to the state machine. It will put them in its x and y
+    // registers. We pack them together as two 16-bit values in one 32-bit
+    // word.
+    // This also synchronizes us with the state machine.
+    const uint32_t initial_request_cycles = 1000;
+    const uint32_t bits_to_receive = 40;
+    const uint32_t payload = (initial_request_cycles << 16) | bits_to_receive;
+
+    pio_sm_put_blocking(pio, state_machine, payload);
+
+    // TODO
+    (void)celsius;
+    (void)humidity_percent;
+
+    for (int i = 0; i < 5; ++i) {
+        const uint32_t byte = pio_sm_get_blocking(pio, state_machine);
+        printf("received byte %d: %02lx\n", i, byte);
+    }
+}
+
+// The specified `pio` has already been set up for use with a DHT22 by calling
+// `init_dht22_pio`. Claim one of the PIO's state machines, configure it, start
+// it, and return the state machine.
+uint init_dht22_state_machine(PIO pio, uint program_offset, uint8_t gpio_pin) {
+    const bool required = true;
+    const uint state_machine = pio_claim_unused_sm(pio, required);
+    // TODO dht->dma_chan = dma_claim_unused_channel(required);
+    // TODO dht->gpio_pin = gpio_pin;
+
+    pio_gpio_init(pio, gpio_pin);
+    gpio_pull_up(gpio_pin);
+
+    // `dht22_program_get_default_config` is defined in the build-generated
+    // header `dht22.pio.h`.
+    pio_sm_config cfg = dht22_program_get_default_config(program_offset);
+
+    const float desired_pio_hz = 1'000'000;
+    sm_config_set_clkdiv(&cfg, clock_get_hz(clk_sys) / desired_pio_hz);
+    // The things we do with the GPIO pin is "set" its value, "jmp"
+    // based on its value, and "wait" on it.
+    const uint count = 1;
+    sm_config_set_set_pins(&cfg, gpio_pin, count); // for "set"
+    sm_config_set_jmp_pin(&cfg, gpio_pin); // for "jmp"
+    sm_config_set_in_pins(&cfg, gpio_pin); // for "wait"
+
+    // Bits arrive in most-significant-bit-first (MSB) order and are shifted
+    // into the input shift register (ISR) leftward.
+    // Push (autopush) data to the input FIFO after every 8 bits; this also
+    // clears the ISR.
+    // We autopush on every byte because the total amount of bits received is
+    // one word (the temperature/humidity data) plus one byte (the checksum).
+    // Anything larger would leave the checksum byte in the ISR.
+    const bool shift_direction = false; // false means left
+    const bool autopush = true;
+    const uint autopush_threshold_bits = 8;
+    sm_config_set_in_shift(&cfg, shift_direction, autopush, autopush_threshold_bits);
+    pio_sm_init(pio, state_machine, program_offset, &cfg);
+
+    // 🐎 🐎 🐎 🐎
+    pio_sm_set_enabled(pio, state_machine, true);
+    return state_machine;
+}
+
+// Load the DHT22 program into `pio` and return the program offset within the
+// PIO's instruction memory.
+uint init_dht22_pio(PIO pio) {
+    // `dht22_program` is defined in the build-generated header `dht22.pio.h`.
+    return pio_add_program(pio, &dht22_program);
+}
+
 picoro::Coroutine<void> pio_main(async_context_t *context) {
+    /* TODO: trying my program instead of this.
     dht_t dht;
-    dht_init(&dht, DHT_MODEL, pio0, DATA_PIN, true /* pull_up */);
+    const bool pull_up = true;
+    dht_init(&dht, DHT_MODEL, pio0, DATA_PIN, pull_up);
     DMAInterrupt::setup(context, &dht);
 
     // for (int i = 0; i < 10; ++i) {
@@ -131,6 +206,15 @@ picoro::Coroutine<void> pio_main(async_context_t *context) {
     }
 
     dht_deinit(&dht);
+    */
+    PIO pio = pio0;
+    const uint program_offset = init_dht22_pio(pio);
+    const uint8_t gpio_pin = DATA_PIN;
+    const uint state_machine = init_dht22_state_machine(pio, program_offset, gpio_pin);
+    for (;;) {
+        co_await picoro::sleep_for(context, std::chrono::seconds(2));
+        dht22_measure_blocking(pio, state_machine, nullptr, nullptr);
+    }
 }
 
 int main() {
