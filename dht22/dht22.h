@@ -256,36 +256,32 @@ Sensor::Sensor(Driver *driver, PIO pio, int gpio_pin)
     state_machine = pio_claim_unused_sm(pio, required);
     dma_channel = dma_claim_unused_channel(required);
 
-    {
-        dma_channel_config cfg = dma_channel_get_default_config(dma_channel);
-        // We want the receive (rx) data, not the transmit (tx) data.
-        const bool is_tx = false;
-        channel_config_set_dreq(&cfg, pio_get_dreq(pio, state_machine, is_tx));
-        channel_config_set_transfer_data_size(&cfg, DMA_SIZE_8);
-        channel_config_set_read_increment(&cfg, false);
-        channel_config_set_write_increment(&cfg, true);
-        const uint count = 5;
-        const bool trigger = true;
-        dma_channel_configure(dma_channel, &cfg, data.data(), &pio->rxf[state_machine], count, trigger);
-        dma_irqn_set_channel_enabled(driver->which_dma_irq, dma_channel, true);
-    }
+    dma_channel_config dma_cfg = dma_channel_get_default_config(dma_channel);
+    // We want the receive (rx) data, not the transmit (tx) data.
+    const bool is_tx = false;
+    channel_config_set_dreq(&dma_cfg, pio_get_dreq(pio, state_machine, is_tx));
+    channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_8);
+    channel_config_set_read_increment(&dma_cfg, false);
+    channel_config_set_write_increment(&dma_cfg, true);
+    const uint chunk_count = 5;
+    const bool trigger = true;
+    dma_channel_configure(dma_channel, &dma_cfg, data.data(), &pio->rxf[state_machine], chunk_count, trigger);
+    dma_irqn_set_channel_enabled(driver->which_dma_irq, dma_channel, true);
 
     pio_gpio_init(pio, gpio_pin);
     gpio_pull_up(gpio_pin);
 
     // `dht22_program_get_default_config` is defined in the build-generated
     // header `dht22.pio.h`.
-    pio_sm_config cfg = dht22_program_get_default_config(program_offset);
-
+    pio_sm_config pio_cfg = dht22_program_get_default_config(program_offset);
     const float desired_pio_hz = 1'000'000;
-    sm_config_set_clkdiv(&cfg, clock_get_hz(clk_sys) / desired_pio_hz);
+    sm_config_set_clkdiv(&pio_cfg, clock_get_hz(clk_sys) / desired_pio_hz);
     // The things we do with the GPIO pin is "set" its value, "jmp"
     // based on its value, and "wait" on it.
-    const uint count = 1;
-    sm_config_set_set_pins(&cfg, gpio_pin, count); // for "set"
-    sm_config_set_jmp_pin(&cfg, gpio_pin); // for "jmp"
-    sm_config_set_in_pins(&cfg, gpio_pin); // for "wait"
-
+    const uint pin_count = 1;
+    sm_config_set_set_pins(&pio_cfg, gpio_pin, pin_count); // for "set"
+    sm_config_set_jmp_pin(&pio_cfg, gpio_pin); // for "jmp"
+    sm_config_set_in_pins(&pio_cfg, gpio_pin); // for "wait"
     // Bits arrive in most-significant-bit-first (MSB) order and are shifted
     // into the input shift register (ISR) leftward.
     // Push (autopush) data to the input FIFO after every 8 bits; this also
@@ -296,8 +292,8 @@ Sensor::Sensor(Driver *driver, PIO pio, int gpio_pin)
     const bool shift_direction = false; // false means left
     const bool autopush = true;
     const uint autopush_threshold_bits = 8;
-    sm_config_set_in_shift(&cfg, shift_direction, autopush, autopush_threshold_bits);
-    pio_sm_init(pio, state_machine, program_offset, &cfg);
+    sm_config_set_in_shift(&pio_cfg, shift_direction, autopush, autopush_threshold_bits);
+    pio_sm_init(pio, state_machine, program_offset, &pio_cfg);
 
     // 🐎 🐎 🐎 🐎
     pio_sm_set_enabled(pio, state_machine, true);
