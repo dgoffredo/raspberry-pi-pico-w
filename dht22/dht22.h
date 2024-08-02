@@ -30,7 +30,7 @@ struct Reading {
 void read_from_dht(uint gpio_pin, Reading *result);
 
 struct Sensor {
-    uint gpio_pin;
+    uint gpio_pin : 5;
     bool pull_up;
 };
 

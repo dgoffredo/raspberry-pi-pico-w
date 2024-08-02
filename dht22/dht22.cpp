@@ -29,9 +29,9 @@ uint32_t getFreeHeap() {
 }
 
 picoro::Coroutine<void> monitor_memory(async_context_t *context) {
-    for (;;) {
+    for (int i = 0; ; ++i) {
         const uint32_t bytes_free = getFreeHeap();
-        printf("The heap has %lu bytes (%lu KB) free.\n", bytes_free, bytes_free / 1000UL);
+        printf("%d: The heap has %lu bytes (%lu KB) free.\n", i, bytes_free, bytes_free / 1000UL);
         co_await picoro::sleep_for(context, std::chrono::seconds(5));
     }
 }
@@ -43,12 +43,11 @@ float celsius_to_fahrenheit(float temperature) {
     return temperature * (9.0f / 5) + 32;
 }
 
-
 struct DMAInterrupt {
-    static uint channel;
     static async_context_t *context;
     static async_when_pending_worker_t worker;
     static std::coroutine_handle<> continuation;
+    static uint channel;
 
     static void irq0_handler() {
         async_context_set_work_pending(DMAInterrupt::context, &DMAInterrupt::worker);
@@ -57,24 +56,41 @@ struct DMAInterrupt {
         dma_irqn_acknowledge_channel(which_dma_irq, DMAInterrupt::channel);
     }
 
-    static void setup(async_context_t *context, dht_t *dht) {
+    static void setup(async_context_t *context, uint dma_channel) {
         DMAInterrupt::context = context;
         DMAInterrupt::worker.do_work = &DMAInterrupt::do_work;
         async_context_add_when_pending_worker(context, &DMAInterrupt::worker);
 
-        DMAInterrupt::channel = dht->dma_chan;
+        DMAInterrupt::channel = dma_channel;
         dma_channel_set_irq0_enabled(DMAInterrupt::channel, true);
         irq_add_shared_handler(DMA_IRQ_0, &DMAInterrupt::irq0_handler, PICO_SHARED_IRQ_HANDLER_DEFAULT_ORDER_PRIORITY);
         irq_set_enabled(DMA_IRQ_0, true);
     }
 
+    static void setup(async_context_t *context, dht_t *dht) {
+        setup(context, dht->dma_chan);
+    }
+
     static void do_work(async_context_t*, async_when_pending_worker_t*) {
-        DMAInterrupt::continuation.resume();
+        if (DMAInterrupt::continuation) {
+            auto continuation = DMAInterrupt::continuation;
+            printf("I'm about to resume %p\n", continuation.address());
+            DMAInterrupt::continuation = nullptr;
+            continuation.resume();
+        } else {
+            printf("There's no continuation, so I'm not going to resume it.\n");
+        }
     }
 
     struct Awaiter {
         bool await_ready() {
-            return false;
+            // If the transfer is done, then we don't need to suspend.
+            // This assumes that the transfer has already begun.
+            const bool already_done = !dma_channel_is_busy(DMAInterrupt::channel);
+            if (already_done) {
+                printf("Too slow!\n");
+            }
+            return already_done;
         }
 
         bool await_suspend(std::coroutine_handle<> continuation) {
@@ -105,9 +121,64 @@ picoro::Coroutine<dht_result_t> dht_finish_measurement(dht_t *dht, float *humidi
     if (dht->data[4] != checksum) {
         co_return DHT_RESULT_BAD_CHECKSUM;
     }
-    // #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+
     *humidity = decode_humidity(dht->model, dht->data[0], dht->data[1]);
     *temperature_c = decode_temperature(dht->model, dht->data[2], dht->data[3]);
+    co_return DHT_RESULT_OK;
+}
+
+struct DHT22Sensor {
+    char data[5];
+    uint8_t state_machine : 3;
+    uint8_t dma_channel : 4;
+    uint8_t which_pio : 1;
+
+    PIO pio() const {
+        return which_pio ? pio1 : pio0;
+    }
+    void set_pio(PIO pio) {
+        which_pio = (pio == pio1);
+    }
+
+    // You can't copy or move a sensor, because its `.data` member is
+    // referenced by a DMA channel.
+    DHT22Sensor() = default;
+    DHT22Sensor(const DHT22Sensor&) = delete;
+    DHT22Sensor(DHT22Sensor&&) = delete;
+};
+
+picoro::Coroutine<dht_result_t> dht22_measure(DHT22Sensor& sensor, float *celsius, float *humidity_percent) {
+    // Push some counters to the state machine. It will put them in its x and y
+    // registers. We pack them together as two 16-bit values in one 32-bit
+    // word.
+    // This also synchronizes us with the state machine.
+    const uint32_t initial_request_cycles = 1000;
+    const uint32_t bits_to_receive = 40;
+    const uint32_t payload = (initial_request_cycles << 16) | bits_to_receive;
+
+    pio_sm_put(sensor.pio(), sensor.state_machine, payload);
+    // TODO: no
+    static bool parity = false;
+    sleep_ms(parity ? 10 : 0);
+    parity = !parity;
+
+    printf("before inner await\n");
+    co_await DMAInterrupt::Awaiter{};
+    printf("after inner await\n");
+
+    auto& data = sensor.data;
+    const uint8_t checksum = data[0] + data[1] + data[2] + data[3];
+    if (data[4] != checksum) {
+        co_return DHT_RESULT_BAD_CHECKSUM;
+    }
+
+    *humidity_percent = decode_humidity(DHT22, data[0], data[1]);
+    *celsius = decode_temperature(DHT22, data[2], data[3]);
+
+    // Re-trigger the DMA channel.
+    const bool trigger = true;
+    dma_channel_set_write_addr(sensor.dma_channel, data, trigger);
+
     co_return DHT_RESULT_OK;
 }
 
@@ -133,13 +204,27 @@ void dht22_measure_blocking(PIO pio, uint state_machine, float *celsius, float *
 }
 
 // The specified `pio` has already been set up for use with a DHT22 by calling
-// `init_dht22_pio`. Claim one of the PIO's state machines, configure it, start
-// it, and return the state machine.
-uint init_dht22_state_machine(PIO pio, uint program_offset, uint8_t gpio_pin) {
+// `init_dht22_pio`.
+void init_dht22_state_machine(DHT22Sensor& sensor, async_context_t *context, PIO pio, uint program_offset, uint8_t gpio_pin) {
+    sensor.set_pio(pio);
     const bool required = true;
-    const uint state_machine = pio_claim_unused_sm(pio, required);
-    // TODO dht->dma_chan = dma_claim_unused_channel(required);
-    // TODO dht->gpio_pin = gpio_pin;
+    sensor.state_machine = pio_claim_unused_sm(pio, required);
+    sensor.dma_channel = dma_claim_unused_channel(required);
+
+    {
+        dma_channel_config cfg = dma_channel_get_default_config(sensor.dma_channel);
+        // We want the receive (rx) data, not the transmit (tx) data.
+        const bool is_tx = false;
+        channel_config_set_dreq(&cfg, pio_get_dreq(pio, sensor.state_machine, is_tx));
+        channel_config_set_transfer_data_size(&cfg, DMA_SIZE_8);
+        channel_config_set_read_increment(&cfg, false);
+        channel_config_set_write_increment(&cfg, true);
+        const uint count = 5;
+        const bool trigger = true;
+        dma_channel_configure(sensor.dma_channel, &cfg, sensor.data, &pio->rxf[sensor.state_machine], count, trigger);
+
+        DMAInterrupt::setup(context, sensor.dma_channel);
+    }
 
     pio_gpio_init(pio, gpio_pin);
     gpio_pull_up(gpio_pin);
@@ -168,11 +253,10 @@ uint init_dht22_state_machine(PIO pio, uint program_offset, uint8_t gpio_pin) {
     const bool autopush = true;
     const uint autopush_threshold_bits = 8;
     sm_config_set_in_shift(&cfg, shift_direction, autopush, autopush_threshold_bits);
-    pio_sm_init(pio, state_machine, program_offset, &cfg);
+    pio_sm_init(pio, sensor.state_machine, program_offset, &cfg);
 
     // 🐎 🐎 🐎 🐎
-    pio_sm_set_enabled(pio, state_machine, true);
-    return state_machine;
+    pio_sm_set_enabled(pio, sensor.state_machine, true);
 }
 
 // Load the DHT22 program into `pio` and return the program offset within the
@@ -210,11 +294,25 @@ picoro::Coroutine<void> pio_main(async_context_t *context) {
     PIO pio = pio0;
     const uint program_offset = init_dht22_pio(pio);
     const uint8_t gpio_pin = DATA_PIN;
-    const uint state_machine = init_dht22_state_machine(pio, program_offset, gpio_pin);
-    for (;;) {
+    DHT22Sensor sensor;
+    init_dht22_state_machine(sensor, context, pio, program_offset, gpio_pin);
+    for (int i = 0; ; ++i) {
+        printf("%d: Before sleep\n", i);
         co_await picoro::sleep_for(context, std::chrono::seconds(2));
-        dht22_measure_blocking(pio, state_machine, nullptr, nullptr);
+        printf("%d: After sleep\n", i);
+        float celsius;
+        float humidity_percent;
+        printf("%d: Before outer await\n", i);
+        const dht_result_t rc = co_await dht22_measure(sensor, &celsius, &humidity_percent);
+        printf("%d: After outer await\n", i);
+        if (rc) {
+            printf("BAD THINGS BAD THINGS\n");
+        } else {
+            printf("%d: %.1f C (%.1f F), %.1f%% humidity\n", i, celsius, celsius_to_fahrenheit(celsius), humidity_percent);
+        }
     }
+
+    // TODO: cleanup
 }
 
 int main() {
