@@ -4,7 +4,6 @@
 #include <array>
 #include <chrono>
 #include <coroutine>
-#include <cstdio>
 
 #include <hardware/clocks.h>
 #include <hardware/dma.h>
@@ -14,6 +13,7 @@
 #include <pico/stdlib.h>
 
 #include <picoro/coroutine.h>
+#include <picoro/debug.h>
 #include <picoro/sleep.h>
 
 #include "dht22.pio.h"
@@ -23,8 +23,6 @@ namespace dht22 {
 
 struct Driver;
 struct Sensor;
-
-// TODO: PIO management
 
 struct Driver {
     async_context_t *context;
@@ -66,6 +64,20 @@ struct Sensor {
     Coroutine<int> measure(float *celsius, float *humidity_percent);
 };
 
+template <uint8_t which_dma_irq>
+void dma_irq_handler();
+
+void handle_ready_sensors(async_context_t *, async_when_pending_worker_t *);
+
+float decode_temperature(uint8_t b0, uint8_t b1);
+
+float decode_humidity(uint8_t b0, uint8_t b1);
+
+// Implementations
+// ===============
+
+// Driver *core_context[]
+// ----------------------
 // When a `Driver` is instantiated, it installs itself here via
 // `core_context[get_core_num()] = this;`.
 // When a `Driver` is destroyed, it uninstalls itself via
@@ -73,6 +85,8 @@ struct Sensor {
 inline
 Driver *core_context[2] = {};
 
+// void dma_irq_handler()
+// ----------------------
 template <uint8_t which_dma_irq>
 void dma_irq_handler() {
     Driver *driver = core_context[get_core_num()];
@@ -102,6 +116,8 @@ void dma_irq_handler() {
     }
 }
 
+// void handle_ready_sensors(async_context_t*, async_when_pending_worker_t*)
+// -------------------------------------------------------------------------
 inline
 void handle_ready_sensors(async_context_t *, async_when_pending_worker_t *worker) {
   auto *driver = static_cast<Driver*>(worker->user_data);
@@ -125,6 +141,8 @@ void handle_ready_sensors(async_context_t *, async_when_pending_worker_t *worker
   }
 }
 
+// float decode_temperature(uint8_t, uint8_t)
+// ------------------------------------------
 inline
 float decode_temperature(uint8_t b0, uint8_t b1) {
     float temperature = 0.1f * (((b0 & 0x7F) << 8) + b1);
@@ -134,11 +152,15 @@ float decode_temperature(uint8_t b0, uint8_t b1) {
     return temperature;
 }
 
+// float decode_humidity(uint8_t, uint8_t)
+// ---------------------------------------
 inline
 float decode_humidity(uint8_t b0, uint8_t b1) {
     return 0.1f * ((b0 << 8) + b1);
 }
 
+// struct Driver
+// -------------
 inline
 Driver::Driver(async_context_t *context, uint8_t which_dma_irq)
 : context(context)
@@ -146,7 +168,7 @@ Driver::Driver(async_context_t *context, uint8_t which_dma_irq)
 , sensors()
 , program_offsets({-1, -1})
 , which_dma_irq(which_dma_irq) {
-    std::printf("dht22::Driver::Driver\n");
+    debug("dht22::Driver::Driver\n");
     // Here's the plan:
     // - Register ourselves in `core_context`.
     // - Register `worker` with `context`.
@@ -173,7 +195,7 @@ Driver::Driver(async_context_t *context, uint8_t which_dma_irq)
 }
 
 Driver::~Driver() {
-    std::printf("dht22::Driver::~Driver\n");
+    debug("dht22::Driver::~Driver\n");
     // Undo what we did in the constructor:
     // - Unregister ourselves in `core_context`.
     // - Unregister `worker` with `context`.
@@ -213,12 +235,14 @@ int Driver::load(PIO pio) {
     return program_offsets[which] = pio_add_program(pio, &dht22_program);
 }
 
+// struct Sensor
+// -------------
 inline
 Sensor::Sensor(Driver *driver, PIO pio, int gpio_pin)
 : data()
 , ready(false)
 , driver(driver) {
-    std::printf("dht22::Sensor::Sensor\n");
+    debug("dht22::Sensor::Sensor\n");
     const auto slot = std::find(driver->sensors.begin(), driver->sensors.end(), nullptr);
     if (slot == driver->sensors.end()) {
         panic("In dht22::Sensor constructor: dht22::Driver is already full of sensors.");
@@ -281,30 +305,20 @@ Sensor::Sensor(Driver *driver, PIO pio, int gpio_pin)
 
 inline
 Sensor::~Sensor() {
-    std::printf("dht22::Sensor::~Sensor\n");
+    debug("dht22::Sensor::~Sensor\n");
     const auto slot = std::find(driver->sensors.begin(), driver->sensors.end(), this);
-    std::printf("@ %s:%d\n", __FILE__, __LINE__);
     if (slot == driver->sensors.end()) {
-        std::printf("@ %s:%d\n", __FILE__, __LINE__);
         panic("In dht22::Sensor destructor: dht22::Driver is missing me.");
     }
-    std::printf("@ %s:%d\n", __FILE__, __LINE__);
     *slot = nullptr;
-    std::printf("@ %s:%d\n", __FILE__, __LINE__);
 
     dma_irqn_set_channel_enabled(driver->which_dma_irq, dma_channel, false);
-    std::printf("@ %s:%d\n", __FILE__, __LINE__);
     dma_channel_abort(dma_channel);
-    std::printf("@ %s:%d\n", __FILE__, __LINE__);
     dma_channel_unclaim(dma_channel);
 
-    std::printf("@ %s:%d\n", __FILE__, __LINE__);
     PIO pio = get_pio();
-    std::printf("@ %s:%d\n", __FILE__, __LINE__);
     pio_sm_set_enabled(pio, state_machine, false);
-    std::printf("@ %s:%d\n", __FILE__, __LINE__);
     pio_sm_unclaim(pio, state_machine);
-    std::printf("@ %s:%d\n", __FILE__, __LINE__);
 }
 
 inline
@@ -335,12 +349,7 @@ Coroutine<int> Sensor::measure(float *celsius, float *humidity_percent) {
         bool await_ready() {
             // If the transfer is done, then we don't need to suspend.
             // This assumes that the transfer has already begun.
-            const bool already_done = !dma_channel_is_busy(sensor->dma_channel);
-            // TODO: remove this logging
-            if (already_done) {
-                std::printf("Too slow!\n");
-            }
-            return already_done;
+            return !dma_channel_is_busy(sensor->dma_channel);
         }
 
         bool await_suspend(std::coroutine_handle<> continuation) {
@@ -351,9 +360,7 @@ Coroutine<int> Sensor::measure(float *celsius, float *humidity_percent) {
         void await_resume() {}
     };
 
-    std::printf("before inner await\n");
     co_await Awaiter{this};
-    std::printf("after inner await\n");
 
     const uint8_t checksum = data[0] + data[1] + data[2] + data[3];
     if (data[4] != checksum) {

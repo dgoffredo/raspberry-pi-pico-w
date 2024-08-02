@@ -31,7 +31,6 @@ target_include_directories(dht22 PRIVATE
         )
 
 target_link_libraries(dht22
-        dht_pio # TODO: remove
         picoro
         pico_async_context_poll
         pico_cyw43_arch_lwip_poll
@@ -42,7 +41,6 @@ target_link_libraries(dht22
         )
 
 add_subdirectory(picoro)
-add_subdirectory(dht-pio)
 
 # create map/bin/hex file etc.
 pico_add_extra_outputs(dht22)
