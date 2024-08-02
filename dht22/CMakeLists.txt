@@ -31,13 +31,14 @@ target_include_directories(dht22 PRIVATE
         )
 
 target_link_libraries(dht22
-        dht_pio
+        dht_pio # TODO: remove
         picoro
         pico_async_context_poll
         pico_cyw43_arch_lwip_poll
         pico_stdlib
         hardware_clocks
         hardware_dma
+        hardware_pio
         )
 
 add_subdirectory(picoro)
