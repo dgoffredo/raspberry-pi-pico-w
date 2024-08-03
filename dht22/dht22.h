@@ -20,10 +20,10 @@
 namespace picoro {
 namespace dht22 {
 
-struct Driver;
-struct Sensor;
+class Driver;
+class Sensor;
 
-struct Driver {
+class Driver {
     async_context_t *context;
     async_when_pending_worker_t worker;
     std::array<Sensor*, 8> sensors;
@@ -31,6 +31,9 @@ struct Driver {
     uint8_t which_dma_irq : 1;
     bool irq_previously_enabled : 1;
 
+    friend class Sensor;
+
+ public:
     explicit Driver(async_context_t*, uint8_t which_dma_irq);
     ~Driver();
     // You can't copy or move a Driver, because its `.worker` member is
@@ -38,10 +41,16 @@ struct Driver {
     Driver(const Driver&) = delete;
     Driver(Driver&&) = delete;
 
+ private:
     int load(PIO);
+
+    template <uint8_t which_dma_irq>
+    static void dma_irq_handler();
+
+    static void handle_ready_sensors(async_context_t *, async_when_pending_worker_t *);
 };
 
-struct Sensor {
+class Sensor {
     std::array<char, 5> data;
     uint8_t which_pio : 1;
     uint8_t state_machine : 2;
@@ -50,6 +59,9 @@ struct Sensor {
     std::coroutine_handle<> continuation;
     Driver *driver;
 
+    friend class Driver;
+
+ public:
     explicit Sensor(Driver *, PIO, int gpio_pin);
     ~Sensor();
     // You can't copy or move a Sensor, because its `.data` member is
@@ -57,20 +69,15 @@ struct Sensor {
     Sensor(const Sensor&) = delete;
     Sensor(Sensor&&) = delete;
 
+    Coroutine<int> measure(float *celsius, float *humidity_percent);
+
+ private:
     PIO get_pio() const;
     void set_pio(PIO);
 
-    Coroutine<int> measure(float *celsius, float *humidity_percent);
+    static float decode_temperature(uint8_t b0, uint8_t b1);
+    static float decode_humidity(uint8_t b0, uint8_t b1);
 };
-
-template <uint8_t which_dma_irq>
-void dma_irq_handler();
-
-void handle_ready_sensors(async_context_t *, async_when_pending_worker_t *);
-
-float decode_temperature(uint8_t b0, uint8_t b1);
-
-float decode_humidity(uint8_t b0, uint8_t b1);
 
 // Implementations
 // ===============
@@ -84,10 +91,10 @@ float decode_humidity(uint8_t b0, uint8_t b1);
 inline
 Driver *core_context[2] = {};
 
-// void dma_irq_handler()
-// ----------------------
+// class Driver
+// ------------
 template <uint8_t which_dma_irq>
-void dma_irq_handler() {
+void Driver::dma_irq_handler() {
     Driver *driver = core_context[get_core_num()];
     if (driver == nullptr) {
         // TODO: spurious?
@@ -115,10 +122,8 @@ void dma_irq_handler() {
     }
 }
 
-// void handle_ready_sensors(async_context_t*, async_when_pending_worker_t*)
-// -------------------------------------------------------------------------
 inline
-void handle_ready_sensors(async_context_t *, async_when_pending_worker_t *worker) {
+void Driver::handle_ready_sensors(async_context_t *, async_when_pending_worker_t *worker) {
   auto *driver = static_cast<Driver*>(worker->user_data);
   for (Sensor *sensor : driver->sensors) {
       if (sensor == nullptr || !sensor->ready) {
@@ -140,26 +145,6 @@ void handle_ready_sensors(async_context_t *, async_when_pending_worker_t *worker
   }
 }
 
-// float decode_temperature(uint8_t, uint8_t)
-// ------------------------------------------
-inline
-float decode_temperature(uint8_t b0, uint8_t b1) {
-    float temperature = 0.1f * (((b0 & 0x7F) << 8) + b1);
-    if (b0 & 0x80) {
-        temperature = -temperature;
-    }
-    return temperature;
-}
-
-// float decode_humidity(uint8_t, uint8_t)
-// ---------------------------------------
-inline
-float decode_humidity(uint8_t b0, uint8_t b1) {
-    return 0.1f * ((b0 << 8) + b1);
-}
-
-// struct Driver
-// -------------
 inline
 Driver::Driver(async_context_t *context, uint8_t which_dma_irq)
 : context(context)
@@ -179,12 +164,12 @@ Driver::Driver(async_context_t *context, uint8_t which_dma_irq)
     }
     core_context[core] = this;
 
-    worker.do_work = &handle_ready_sensors;
+    worker.do_work = &Driver::handle_ready_sensors;
     worker.user_data = this;
     async_context_add_when_pending_worker(context, &worker);
 
     const auto irq = which_dma_irq ? DMA_IRQ_1 : DMA_IRQ_0;
-    const auto handler = which_dma_irq ? &dma_irq_handler<1> : &dma_irq_handler<0>;
+    const auto handler = which_dma_irq ? &Driver::dma_irq_handler<1> : &Driver::dma_irq_handler<0>;
     irq_add_shared_handler(
         irq,
         handler,
@@ -211,7 +196,7 @@ Driver::~Driver() {
     async_context_remove_when_pending_worker(context, &worker);
 
     const auto irq = which_dma_irq ? DMA_IRQ_1 : DMA_IRQ_0;
-    const auto handler = which_dma_irq ? &dma_irq_handler<1> : &dma_irq_handler<0>;
+    const auto handler = which_dma_irq ? &Driver::dma_irq_handler<1> : &Driver::dma_irq_handler<0>;
     irq_remove_handler(irq, handler);
     if (!irq_previously_enabled) {
         irq_set_enabled(irq, false);
@@ -234,8 +219,8 @@ int Driver::load(PIO pio) {
     return program_offsets[which] = pio_add_program(pio, &dht22_program);
 }
 
-// struct Sensor
-// -------------
+// class Sensor
+// ------------
 inline
 Sensor::Sensor(Driver *driver, PIO pio, int gpio_pin)
 : data()
@@ -369,6 +354,20 @@ Coroutine<int> Sensor::measure(float *celsius, float *humidity_percent) {
     const bool trigger = true;
     dma_channel_set_write_addr(dma_channel, data.data(), trigger);
     co_return 0; // success
+}
+
+inline
+float Sensor::decode_temperature(uint8_t b0, uint8_t b1) {
+    float temperature = 0.1f * (((b0 & 0x7F) << 8) + b1);
+    if (b0 & 0x80) {
+        temperature = -temperature;
+    }
+    return temperature;
+}
+
+inline
+float Sensor::decode_humidity(uint8_t b0, uint8_t b1) {
+    return 0.1f * ((b0 << 8) + b1);
 }
 
 } // namespace dht22
