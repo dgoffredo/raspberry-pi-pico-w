@@ -1,5 +1,5 @@
 #include <picoro/coroutine.h>
-#include "dht22.h"
+#include <picoro/drivers/dht22.h>
 #include <picoro/event_loop.h>
 #include <picoro/sleep.h>
 
@@ -8,6 +8,13 @@
 
 #include <cassert>
 #include <chrono>
+
+// Work around `-Werror=unused-variable` in release builds.
+#define ASSERT(WHAT) \
+  do { \
+    assert(WHAT); \
+    (void) sizeof(WHAT); \
+  } while (false)
 
 picoro::Coroutine<void> monitor_sensor(
     async_context_t *ctx,
@@ -21,8 +28,11 @@ picoro::Coroutine<void> monitor_sensor(
     float celsius, humidity_percent;
     const int rc = co_await sensor.measure(&celsius, &humidity_percent);
     if (rc == 0) {
-      std::printf("%s: %.1f C, %.1f%% humidity\n", name, celsius,
-              humidity_percent);
+      std::printf("{"
+        "\"sensor\": \"%s\", "
+        "\"celsius\": %.1f, "
+        "\"humidity_percent\": %.1f"
+      "}\n", name, celsius, humidity_percent);
     }
   }
 }
@@ -32,7 +42,7 @@ int main() {
 
     async_context_poll_t context;
     const bool ok = async_context_poll_init_with_defaults(&context);
-    assert(ok);
+    ASSERT(ok);
     async_context_t *const ctx = &context.core;
 
     constexpr int which_dma_irq = 0;
