@@ -10,7 +10,6 @@
 #include <hardware/gpio.h>
 
 #include <pico/async_context.h>
-#include <pico/stdlib.h>
 
 #include <picoro/coroutine.h>
 #include <picoro/debug.h>

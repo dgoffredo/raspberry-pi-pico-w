@@ -21,9 +21,9 @@ add_executable(dht22
 
 pico_generate_pio_header(dht22 ${CMAKE_CURRENT_LIST_DIR}/dht22.pio)
 
-# Enable coroutines (GCC 10 requires a flag) and stricter warnings for our C++ code only.
+# Enable stricter warnings for our C++ code only.
 set_source_files_properties(dht22.cpp dht22.h
-        PROPERTIES COMPILE_OPTIONS -fcoroutines -Wextra -pedantic)
+        PROPERTIES COMPILE_OPTIONS "-fcoroutines;-Wextra")
 
 # Make our lwipopts.h visible to lwip, which includes it.
 target_include_directories(dht22 PRIVATE
@@ -31,10 +31,13 @@ target_include_directories(dht22 PRIVATE
         )
 
 target_link_libraries(dht22
-        picoro
-        pico_async_context_poll
-        pico_cyw43_arch_lwip_poll
+        picoro_coroutine
+        picoro_event_loop
+        picoro_sleep
+        picoro_tcp
+
         pico_stdlib
+
         hardware_clocks
         hardware_dma
         hardware_pio

@@ -7,6 +7,7 @@
 
 #include <pico/async_context_poll.h>
 #include <pico/cyw43_arch.h>
+#include <pico/stdio.h>
 
 #include <picoro/coroutine.h>
 #include <picoro/event_loop.h>
