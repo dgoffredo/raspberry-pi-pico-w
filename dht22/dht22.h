@@ -474,18 +474,18 @@ Coroutine<int> Sensor::measure(float *celsius, float *humidity_percent) {
 
     co_await Awaiter{this};
 
-    const uint8_t checksum = data[0] + data[1] + data[2] + data[3];
-    if (data[4] != checksum) {
-        co_return -1; // error
+    const uint8_t expected_checksum = data[4];
+    const uint8_t calculated_checksum = data[0] + data[1] + data[2] + data[3];
+    if (calculated_checksum == expected_checksum) {
+        *humidity_percent = decode_humidity(data[0], data[1]);
+        *celsius = decode_temperature(data[2], data[3]);
     }
-
-    *humidity_percent = decode_humidity(data[0], data[1]);
-    *celsius = decode_temperature(data[2], data[3]);
 
     // Re-trigger the DMA channel.
     const bool trigger = true;
     dma_channel_set_write_addr(dma_channel, data.data(), trigger);
-    co_return 0; // success
+
+    co_return calculated_checksum != expected_checksum;
 }
 
 inline
