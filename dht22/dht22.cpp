@@ -49,9 +49,9 @@ int main() {
     picoro::dht22::Driver driver(ctx, which_dma_irq);
 
     picoro::run_event_loop(ctx,
-        monitor_sensor(ctx, &driver, pio0, 15, "top shelf"),
-        monitor_sensor(ctx, &driver, pio0, 16, "middle shelf"),
-        monitor_sensor(ctx, &driver, pio0, 22, "bottom shelf"));
+        monitor_sensor(ctx, &driver, pio0, 16, "top"),
+        monitor_sensor(ctx, &driver, pio0, 15, "middle"),
+        monitor_sensor(ctx, &driver, pio0, 22, "bottom"));
 
     // unreachable
     async_context_deinit(ctx);
