@@ -188,7 +188,7 @@ picoro::Coroutine<void> monitor_sensor(
   using Sensor = picoro::dht22::Sensor;
   Sensor sensor(driver, pio, gpio_pin);
   for (;;) {
-    co_await picoro::sleep_for(ctx, std::chrono::seconds(2));
+    co_await picoro::sleep_for(ctx, std::chrono::milliseconds(2500));
     float celsius, humidity_percent;
     Sensor::Result rc = co_await sensor.measure(&celsius, &humidity_percent);
     switch (rc) {
