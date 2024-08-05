@@ -24,6 +24,7 @@ struct Measurement {
   int sequence_number = 0;
   float celsius = 0;
   float humidity_percent = 0;
+  int error_count = 0;
 };
 
 struct {
@@ -38,19 +39,22 @@ int format_response(char (&buffer)[2048]) {
     "Connection: close\r\n"
     "Content-Type: application/json\r\n"
     "\r\n"
-    "{\"top\": {\"sequence_number\": %d, \"celsius\": %.1f, \"humidity_percent\": %.1f},"
-    " \"middle\": {\"sequence_number\": %d, \"celsius\": %.1f, \"humidity_percent\": %.1f},"
-    " \"bottom\": {\"sequence_number\": %d, \"celsius\": %.1f, \"humidity_percent\": %.1f}"
+    "{\"top\": {\"sequence_number\": %d, \"celsius\": %.1f, \"humidity_percent\": %.1f, \"error_count\": %d},"
+    " \"middle\": {\"sequence_number\": %d, \"celsius\": %.1f, \"humidity_percent\": %.1f, \"error_count\": %d},"
+    " \"bottom\": {\"sequence_number\": %d, \"celsius\": %.1f, \"humidity_percent\": %.1f, \"error_count\": %d}"
     "}",
     most_recent.top.sequence_number,
     most_recent.top.celsius,
     most_recent.top.humidity_percent,
+    most_recent.top.error_count,
     most_recent.middle.sequence_number,
     most_recent.middle.celsius,
     most_recent.middle.humidity_percent,
+    most_recent.middle.error_count,
     most_recent.bottom.sequence_number,
     most_recent.bottom.celsius,
-    most_recent.bottom.humidity_percent);
+    most_recent.bottom.humidity_percent,
+    most_recent.bottom.error_count);
 }
 
 const char *pico_describe(int error) {
@@ -177,8 +181,10 @@ picoro::Coroutine<void> monitor_sensor(
     PIO pio,
     uint8_t gpio_pin,
     Measurement *latest) {
-  picoro::dht22::Sensor sensor(driver, pio, gpio_pin);
   for (;;) {
+    // Eventually the sensor gets stuck. I think it's when the fridge
+    // compressor switches on. So, reset the sensor for every measurement.
+    picoro::dht22::Sensor sensor(driver, pio, gpio_pin);
     co_await picoro::sleep_for(ctx, std::chrono::seconds(2));
     float celsius, humidity_percent;
     const int rc = co_await sensor.measure(&celsius, &humidity_percent);
@@ -190,6 +196,9 @@ picoro::Coroutine<void> monitor_sensor(
         "\"celsius\": %.1f, "
         "\"humidity_percent\": %.1f"
       "}\n", celsius, humidity_percent);
+    } else {
+      ++latest->error_count;
+      std::printf("{\"error\": %d}\n", rc);
     }
   }
 }
@@ -203,7 +212,7 @@ int main() {
     async_context_t *const ctx = &context.core;
 
     // Do some WiFi chip setup here, just so that we can use the LED
-    // immediately. The rest of the setup happens in `coroutine_main`.
+    // immediately. The rest of the setup happens in `networking`.
     cyw43_arch_set_async_context(ctx);
     if (cyw43_arch_init_with_country(CYW43_COUNTRY_USA)) { // 🇺🇸 🦅
         std::printf("failed to initialize WiFi\n");
