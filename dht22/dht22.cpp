@@ -8,6 +8,8 @@
 #include <pico/cyw43_arch.h>
 #include <pico/stdio.h>
 
+#include <hardware/watchdog.h>
+
 #include "secrets.h" // `wifi_password`
 
 #include <cassert>
@@ -179,6 +181,16 @@ picoro::Coroutine<void> networking(async_context_t *ctx) {
     co_await http_server(port, listen_backlog);
 }
 
+[[noreturn]] void initiate_reincarnation() {
+  const uint32_t delay_ms = 0;
+  const bool pause_on_debug = false;
+  watchdog_enable(delay_ms, pause_on_debug);
+  // Park while the watchdog reboots us.
+  for (;;) {
+      __wfi(); // "wait for interrupt"
+  }
+}
+
 picoro::Coroutine<void> monitor_sensor(
     async_context_t *ctx,
     picoro::dht22::Driver *driver,
@@ -210,6 +222,10 @@ picoro::Coroutine<void> monitor_sensor(
     }
     std::printf("{\"error\": \"%s\"}\n", Sensor::describe(rc));
     sensor.reset();
+    if (latest->timeouts > 3) {
+      // The sensor stopped responding. Reset the entire board.
+      initiate_reincarnation();
+    }
   }
 }
 

@@ -36,6 +36,7 @@ target_link_libraries(dht22
         picoro_tcp
 
         pico_stdlib
+        hardware_watchdog
         )
 
 # create map/bin/hex file etc.
