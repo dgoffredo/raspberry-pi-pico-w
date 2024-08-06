@@ -8,7 +8,7 @@
 #include <pico/cyw43_arch.h>
 #include <pico/stdio.h>
 
-#include <hardware/watchdog.h>
+#include <tusb.h>
 
 #include "secrets.h" // `wifi_password`
 
@@ -181,26 +181,42 @@ picoro::Coroutine<void> networking(async_context_t *ctx) {
     co_await http_server(port, listen_backlog);
 }
 
-[[noreturn]] void initiate_reincarnation() {
-  const uint32_t delay_ms = 0;
-  const bool pause_on_debug = false;
-  watchdog_enable(delay_ms, pause_on_debug);
-  // Park while the watchdog reboots us.
-  for (;;) {
-      __wfi(); // "wait for interrupt"
-  }
+// Wait for the host to attach to the USB terminal (i.e. ttyACM0).
+// Blink the onboard LED while we're waiting.
+// Give up after the specified number of seconds.
+picoro::Coroutine<void> wait_for_usb_debug_attach(async_context_t *context, std::chrono::seconds timeout) {
+    const int iterations = timeout / std::chrono::seconds(1);
+    for (int i = 0; i < iterations && !tud_cdc_connected(); ++i) {
+        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
+        co_await picoro::sleep_for(context, std::chrono::milliseconds(500));
+        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
+        co_await picoro::sleep_for(context, std::chrono::milliseconds(500));
+    }
+
+    co_await picoro::sleep_for(context, std::chrono::seconds(1));
+    printf("Glad you could make it.\n");
 }
 
 picoro::Coroutine<void> monitor_sensor(
     async_context_t *ctx,
     picoro::dht22::Driver *driver,
     PIO pio,
-    uint8_t gpio_pin,
+    uint8_t data_pin,
+    uint8_t power_pin,
     Measurement *latest) {
+  // Rather than connecting each sensor's power directly to 3.3V, I connect
+  // each to its own GPIO pin. The GPIO pin can provide more than enough
+  // current for the sensor, and can be set low at will to power cycle the
+  // sensor, which tends to lock up after 10-30 minutes.
+  gpio_init(power_pin);
+  gpio_pull_down(power_pin); // already is by default, but let's make sure
+  gpio_set_dir(power_pin, 1); // 1 means "write mode"
+  gpio_put(power_pin, 1); // 1 means "high"
+
   using Sensor = picoro::dht22::Sensor;
-  Sensor sensor(driver, pio, gpio_pin);
+  Sensor sensor(driver, pio, data_pin);
   for (;;) {
-    co_await picoro::sleep_for(ctx, std::chrono::milliseconds(2500));
+    co_await picoro::sleep_for(ctx, std::chrono::milliseconds(2000));
     float celsius, humidity_percent;
     Sensor::Result rc = co_await sensor.measure(&celsius, &humidity_percent);
     switch (rc) {
@@ -222,10 +238,31 @@ picoro::Coroutine<void> monitor_sensor(
     }
     std::printf("{\"error\": \"%s\"}\n", Sensor::describe(rc));
     sensor.reset();
-    if (latest->timeouts > 3) {
-      // The sensor stopped responding. Reset the entire board.
-      initiate_reincarnation();
-    }
+    // The sensor might have stopped responding. Power cycle the sensor.
+    gpio_put(power_pin, 0);
+    // I've chosen "3 seconds" arbitrarily. Probably a much shorter off time
+    // would suffice. It's a pain to test, though, because it takes a while
+    // for the sensor to lock up.
+    co_await picoro::sleep_for(ctx, std::chrono::seconds(3));
+    gpio_put(power_pin, 1);
+  }
+}
+
+picoro::Coroutine<void> sensors_main(async_context_t *ctx, picoro::dht22::Driver *driver) {
+  co_await wait_for_usb_debug_attach(ctx, std::chrono::seconds(3));
+
+  struct {
+    uint data_pin;
+    uint power_pin;
+    Measurement *data;
+  } sensors[] = {
+    {.data_pin = 16, .power_pin = 13, .data = &most_recent.top},
+    {.data_pin = 15, .power_pin = 0, .data = &most_recent.middle},
+    {.data_pin = 22, .power_pin = 6, .data = &most_recent.bottom}
+  };
+
+  for (const auto [data_pin, power_pin, data] : sensors) {
+    monitor_sensor(ctx, driver, pio0, data_pin, power_pin, data).detach();
   }
 }
 
@@ -249,10 +286,8 @@ int main() {
     picoro::dht22::Driver driver(ctx, which_dma_irq);
 
     picoro::run_event_loop(ctx,
-        networking(ctx),
-        monitor_sensor(ctx, &driver, pio0, 16, &most_recent.top),
-        monitor_sensor(ctx, &driver, pio0, 15, &most_recent.middle),
-        monitor_sensor(ctx, &driver, pio0, 22, &most_recent.bottom));
+        sensors_main(ctx, &driver),
+        networking(ctx));
 
     // unreachable
     async_context_deinit(ctx);
