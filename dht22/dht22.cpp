@@ -181,20 +181,19 @@ picoro::Coroutine<void> networking(async_context_t *ctx) {
     co_await http_server(port, listen_backlog);
 }
 
-// Wait for the host to attach to the USB terminal (i.e. ttyACM0).
+// Wait for the host to attach to the USB terminal (e.g. ttyACM0).
 // Blink the onboard LED while we're waiting.
 // Give up after the specified number of seconds.
 picoro::Coroutine<void> wait_for_usb_debug_attach(async_context_t *context, std::chrono::seconds timeout) {
     const int iterations = timeout / std::chrono::seconds(1);
     for (int i = 0; i < iterations && !tud_cdc_connected(); ++i) {
-        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
-        co_await picoro::sleep_for(context, std::chrono::milliseconds(500));
-        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
-        co_await picoro::sleep_for(context, std::chrono::milliseconds(500));
+        co_await picoro::sleep_for(context, std::chrono::milliseconds(1000));
     }
 
-    co_await picoro::sleep_for(context, std::chrono::seconds(1));
-    printf("Glad you could make it.\n");
+    if (tud_cdc_connected()) {
+      co_await picoro::sleep_for(context, std::chrono::seconds(1));
+      printf("Glad you could make it.\n");
+    }
 }
 
 picoro::Coroutine<void> monitor_sensor(
