@@ -56,20 +56,6 @@ const char *pico_describe(int error) {
     return "Unknown Pico error code";
 }
 
-/* From cyw43.h:
-#define CYW43_LINK_DOWN         (0)     ///< link is down
-#define CYW43_LINK_JOIN         (1)     ///< Connected to wifi
-#define CYW43_LINK_NOIP         (2)     ///< Connected to wifi, but no IP address
-#define CYW43_LINK_UP           (3)     ///< Connect to wifi with an IP address
-#define CYW43_LINK_FAIL         (-1)    ///< Connection failed
-#define CYW43_LINK_NONET        (-2)    ///< No matching SSID found (could be out of range, or down)
-#define CYW43_LINK_BADAUTH      (-3)    ///< Authenticatation failure
-*/
-int wifi_status_counts[7] = {};
-void tick_wifi_status(int state) {
-    ++wifi_status_counts[state + 3];
-}
-
 struct Measurement {
     unsigned sequence_number = 0;
     uint16_t co2_ppm = 0;
@@ -115,8 +101,7 @@ int format_response(
         " \"CO2_ppm\": %hu,"
         " \"temperature_celsius\": %ld.%03ld,"
         " \"relative_humidity_percent\": %ld.%03ld,"
-        " \"free_bytes\": %lu,"
-        " \"wifi_status_counts\": [%d, %d, %d, %d, %d, %d, %d]}";
+        " \"free_bytes\": %lu}";
 
     const uint32_t free_bytes = get_free_heap();
 
@@ -130,14 +115,7 @@ int format_response(
         std::abs(data.temperature_millicelsius) % 1000,
         data.relative_humidity_millipercent / 1000,
         std::abs(data.relative_humidity_millipercent) / 1000,
-        free_bytes,
-        wifi_status_counts[0],
-        wifi_status_counts[1],
-        wifi_status_counts[2],
-        wifi_status_counts[3],
-        wifi_status_counts[4],
-        wifi_status_counts[5],
-        wifi_status_counts[6]);
+        free_bytes);
 }
 
 // Wait for the host to attach to the USB terminal (i.e. ttyACM0).
@@ -249,9 +227,9 @@ picoro::Coroutine<void> wifi_connect(async_context_t *context, const char *SSID,
     } led_guard;
 
     cyw43_arch_enable_sta_mode();
-    const uint32_t ultra_performance_giga_chad_power_mode =
-        cyw43_pm_value(CYW43_NO_POWERSAVE_MODE, 20, 1, 1, 1);
-    cyw43_wifi_pm(&cyw43_state, ultra_performance_giga_chad_power_mode);
+    // const uint32_t ultra_performance_giga_chad_power_mode =
+    //     cyw43_pm_value(CYW43_NO_POWERSAVE_MODE, 20, 1, 1, 1);
+    // cyw43_wifi_pm(&cyw43_state, ultra_performance_giga_chad_power_mode);
     // cyw43_wifi_pm(&cyw43_state, CYW43_PERFORMANCE_PM);
 
     debug("Connecting to WiFi...\n");
@@ -298,15 +276,6 @@ picoro::Coroutine<void> wifi_connect(async_context_t *context, const char *SSID,
     debug("Connected to WiFi.\n");
 }
 
-picoro::Coroutine<void> wifi_watchdog(async_context_t *context) {
-    for (;;) {
-        const int wifi_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
-        debug("WiFi status: %s\n", cyw43_describe(wifi_status));
-        tick_wifi_status(wifi_status);
-        co_await picoro::sleep_for(context, std::chrono::milliseconds(250));
-    }
-}
-
 picoro::Coroutine<void> handle_client(picoro::Connection conn) {
     debug("in handle_client(...), about to await recv()\n");
     char readbuf[2048];
@@ -348,8 +317,7 @@ picoro::Coroutine<void> networking(async_context_t *context) {
     co_await wifi_connect(context, "Annoying Saxophone", wifi_password);
     const int port = 80;
     const int listen_backlog = 1;
-    http_server(port, listen_backlog).detach();
-    co_await wifi_watchdog(context);
+    co_await http_server(port, listen_backlog);
 }
 
 picoro::Coroutine<void> coroutine_main(async_context_t *context) {
