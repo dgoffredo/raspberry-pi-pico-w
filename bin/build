@@ -10,20 +10,22 @@ fi
 src=${1%/}
 out="$src/build-bin"
 
-if [ "$2" = 'clean' ]; then
-  rm -rf "$out"
-  exit
-fi
+case "$2" in
+  clean)
+    rm -rf "$out"
+    exit ;;
+  release)
+    build_type=Release ;;
+  debug)
+    build_type=Debug ;;
+  *)
+    >&2 printf 'Specify one of "debug", "release", or "clean". For example: \n\n    bin/build %s debug\n' "$1"
+    exit 3
+esac
 
 if ! [ -d "$src" ]; then
   >&2 printf "Directory \"%s\" doesn't exist.\n" "$src"
   exit 2
-fi
-
-if [ "$2" = release ]; then
-  build_type=Release
-else
-  build_type=Debug
 fi
 
 mkdir -p "$out"
