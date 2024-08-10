@@ -99,8 +99,8 @@ int format_response(
         "\r\n"
         "{\"sequence_number\": %u,"
         " \"CO2_ppm\": %hu,"
-        " \"temperature_celsius\": %ld.%03ld,"
-        " \"relative_humidity_percent\": %ld.%03ld,"
+        " \"temperature_celsius\": %.1f,"
+        " \"relative_humidity_percent\": %.1f,"
         " \"free_bytes\": %lu}";
 
     const uint32_t free_bytes = get_free_heap();
@@ -111,10 +111,8 @@ int format_response(
         response_format,
         data.sequence_number,
         data.co2_ppm,
-        data.temperature_millicelsius / 1000,
-        std::abs(data.temperature_millicelsius) % 1000,
-        data.relative_humidity_millipercent / 1000,
-        std::abs(data.relative_humidity_millipercent) / 1000,
+        data.temperature_millicelsius / 1000.0f,
+        data.relative_humidity_millipercent / 1000.0f,
         free_bytes);
 }
 
@@ -142,13 +140,6 @@ picoro::Coroutine<bool> data_ready(const sensirion::SCD4x& sensor) {
         co_return false;
     }
     co_return result;
-}
-
-int print_millis_as_decimal(int32_t millis) {
-    // 23456 → "23.456"
-    // 23 →  "0.023"
-    // 1000 → "1.000"
-    return printf("%ld.%03ld", millis / 1000, std::abs(millis) % 1000);
 }
 
 picoro::Coroutine<void> monitor_scd4x(async_context_t *context) {
@@ -192,12 +183,7 @@ picoro::Coroutine<void> monitor_scd4x(async_context_t *context) {
         if (rc) {
             debug("Unable to read sensor measurement. Error code %d.\n", rc);
         } else {
-            printf("CO2: %hu ppm\ttemperature: ", co2_ppm);
-            print_millis_as_decimal(temperature_millicelsius);
-            printf(" C\thumidity: ");
-            print_millis_as_decimal(relative_humidity_millipercent);
-            printf("%%\n");
-
+            printf("CO2: %hu ppm\ttemperature: %.1f C\thumidity: %.1f%%\n", co2_ppm, temperature_millicelsius / 1000.0f, relative_humidity_millipercent / 1000.0f);
             ++latest.sequence_number;
             latest.co2_ppm = co2_ppm;
             latest.temperature_millicelsius = temperature_millicelsius;
