@@ -7,3 +7,6 @@
 [submodule "dht22/picoro"]
 	path = dht22/picoro
 	url = git@github.com:/dgoffredo/picoro.git
+[submodule "embedded-i2c-sht3x"]
+	path = embedded-i2c-sht3x
+	url = https://github.com/Sensirion/embedded-i2c-sht3x
