@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.12)
 
-set(PICO_BOARD "pico_w" CACHE STRING "The particular Raspberry Pi Pico board" FORCE) 
+set(PICO_BOARD "pico_w" CACHE STRING "The particular Raspberry Pi Pico board" FORCE)
 set(PICO_SDK_PATH "$ENV{HOME}/src/pico-sdk" CACHE PATH "Path to the Raspberry Pi Pico SDK" FORCE)
 
 include(${PICO_SDK_PATH}/pico_sdk_init.cmake)
@@ -30,9 +30,9 @@ target_include_directories(coroutines PRIVATE
 
 target_link_libraries(coroutines
         hardware_i2c
+        hardware_watchdog
         pico_async_context_poll
         pico_cyw43_arch_lwip_poll
-        pico_lwip_nosys # TODO?
         pico_stdlib
         )
 

@@ -48,13 +48,14 @@
 #include <chrono>
 
 #include <hardware/i2c.h>
+#include <pico/error.h>
 
 #include <picoro/coroutine.h>
 #include <picoro/sleep.h>
 
 namespace sensirion {
 
-constexpr uint16_t NO_ERROR = 0;  
+constexpr uint16_t NO_ERROR = 0;
 
 namespace common {
 
@@ -157,7 +158,7 @@ struct Device  {
   uint8_t address = 0x62;
   std::chrono::microseconds read_timeout = std::chrono::microseconds(1000);
   std::chrono::microseconds write_timeout = std::chrono::microseconds(1000);
-  
+
   /**
    * Execute one read transaction on the I2C bus, reading a given number of bytes.
    * If the device does not acknowledge the read command, return an error.
