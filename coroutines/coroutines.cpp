@@ -1,7 +1,6 @@
 #include "pico/async_context_poll.h"
 #include "pico/binary_info.h"
 #include "pico/cyw43_arch.h"
-#include "pico/lwip_nosys.h" // TODO?
 #include "pico/stdlib.h"
 #include <tusb.h>
 
@@ -13,11 +12,13 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cinttypes>
 #include <cmath>
 #include <cmath>
 #include <cstdio>
 #include <iterator>
 
+#include <hardware/watchdog.h>
 #include <picoro/coroutine.h>
 #include <picoro/debug.h>
 #include <picoro/event_loop.h>
@@ -119,17 +120,17 @@ int format_response(
 // Wait for the host to attach to the USB terminal (i.e. ttyACM0).
 // Blink the onboard LED while we're waiting.
 // Give up after the specified number of seconds.
-picoro::Coroutine<void> wait_for_usb_debug_attach(async_context_t *context, std::chrono::seconds timeout) {
+picoro::Coroutine<void> wait_for_usb_debug_attach(async_context_t *ctx, std::chrono::seconds timeout) {
     const int iterations = timeout / std::chrono::seconds(1);
     for (int i = 0; i < iterations && !tud_cdc_connected(); ++i) {
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
-        co_await picoro::sleep_for(context, std::chrono::milliseconds(500));
+        co_await picoro::sleep_for(ctx, std::chrono::milliseconds(500));
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
-        co_await picoro::sleep_for(context, std::chrono::milliseconds(500));
+        co_await picoro::sleep_for(ctx, std::chrono::milliseconds(500));
     }
 
-    co_await picoro::sleep_for(context, std::chrono::seconds(1));
-    printf("Glad you could make it.\n");
+    co_await picoro::sleep_for(ctx, std::chrono::seconds(1));
+    std::printf("Glad you could make it.\n");
 }
 
 picoro::Coroutine<bool> data_ready(const sensirion::SCD4x& sensor) {
@@ -142,7 +143,7 @@ picoro::Coroutine<bool> data_ready(const sensirion::SCD4x& sensor) {
     co_return result;
 }
 
-picoro::Coroutine<void> monitor_scd4x(async_context_t *context) {
+picoro::Coroutine<void> monitor_scd4x(async_context_t *ctx) {
     // I²C GPIO pins
     const uint sda_pin = 12;
     const uint scl_pin = 13;
@@ -151,13 +152,13 @@ picoro::Coroutine<void> monitor_scd4x(async_context_t *context) {
 
     i2c_inst_t *const instance = i2c0;
     const uint actual_baudrate = i2c_init(instance, clock_hz);
-    printf("The actual I2C baudrate is %u Hz\n", actual_baudrate);
+    std::printf("The actual I2C baudrate is %u Hz\n", actual_baudrate);
     gpio_set_function(sda_pin, GPIO_FUNC_I2C);
     gpio_set_function(scl_pin, GPIO_FUNC_I2C);
     gpio_pull_up(sda_pin);
     gpio_pull_up(scl_pin);
 
-    sensirion::SCD4x sensor{context};
+    sensirion::SCD4x sensor{ctx};
     sensor.device.instance = instance;
 
     int rc = co_await sensor.set_automatic_self_calibration(0);
@@ -171,9 +172,9 @@ picoro::Coroutine<void> monitor_scd4x(async_context_t *context) {
     }
 
     for (;;) {
-        co_await picoro::sleep_for(context, std::chrono::seconds(5));
+        co_await picoro::sleep_for(ctx, std::chrono::seconds(5));
         while (! co_await data_ready(sensor)) {
-            co_await picoro::sleep_for(context, std::chrono::seconds(1));
+            co_await picoro::sleep_for(ctx, std::chrono::seconds(1));
         }
 
         uint16_t co2_ppm;
@@ -183,7 +184,7 @@ picoro::Coroutine<void> monitor_scd4x(async_context_t *context) {
         if (rc) {
             debug("Unable to read sensor measurement. Error code %d.\n", rc);
         } else {
-            printf("CO2: %hu ppm\ttemperature: %.1f C\thumidity: %.1f%%\n", co2_ppm, temperature_millicelsius / 1000.0f, relative_humidity_millipercent / 1000.0f);
+            std::printf("CO2: %hu ppm\ttemperature: %.1f C\thumidity: %.1f%%\n", co2_ppm, temperature_millicelsius / 1000.0f, relative_humidity_millipercent / 1000.0f);
             ++latest.sequence_number;
             latest.co2_ppm = co2_ppm;
             latest.temperature_millicelsius = temperature_millicelsius;
@@ -195,18 +196,18 @@ picoro::Coroutine<void> monitor_scd4x(async_context_t *context) {
     i2c_deinit(instance);
 }
 
-picoro::Coroutine<void> blink(async_context_t *context, int times, std::chrono::milliseconds period) {
+picoro::Coroutine<void> blink(async_context_t *ctx, int times, std::chrono::milliseconds period) {
     const bool led_state = cyw43_arch_gpio_get(CYW43_WL_GPIO_LED_PIN);
     const auto delay = period / 2;
     for (int i = 0; i < times; ++i) {
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, !led_state);
-        co_await picoro::sleep_for(context, delay);
+        co_await picoro::sleep_for(ctx, delay);
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led_state);
-        co_await picoro::sleep_for(context, delay);
+        co_await picoro::sleep_for(ctx, delay);
     }
 }
 
-picoro::Coroutine<void> wifi_connect(async_context_t *context, const char *SSID, const char *password) {
+picoro::Coroutine<void> wifi_connect(async_context_t *ctx, const char *SSID, const char *password) {
     struct LEDGuard {
         LEDGuard() { cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, true); }
         ~LEDGuard() { cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, false); }
@@ -217,13 +218,14 @@ picoro::Coroutine<void> wifi_connect(async_context_t *context, const char *SSID,
     //     cyw43_pm_value(CYW43_NO_POWERSAVE_MODE, 20, 1, 1, 1);
     // cyw43_wifi_pm(&cyw43_state, ultra_performance_giga_chad_power_mode);
     // cyw43_wifi_pm(&cyw43_state, CYW43_PERFORMANCE_PM);
+    cyw43_wifi_pm(&cyw43_state, CYW43_AGGRESSIVE_PM);
 
     debug("Connecting to WiFi...\n");
     int rc = cyw43_arch_wifi_connect_async(SSID, password, CYW43_AUTH_WPA2_AES_PSK);
     if (rc) {
         debug("Error connecting to wifi: %s.", pico_describe(rc));
         // Blink a few times to show that there's a problem.
-        co_await blink(context, 10, std::chrono::milliseconds(250));
+        co_await blink(ctx, 10, std::chrono::milliseconds(250));
         co_return;
     }
 
@@ -237,13 +239,13 @@ picoro::Coroutine<void> wifi_connect(async_context_t *context, const char *SSID,
             rc = cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
             debug("Disassociating from WiFi network. rcode: %d\n", rc);
             debug("Will retry WiFi in a few seconds.\n");
-            co_await picoro::sleep_for(context, std::chrono::seconds(5));
+            co_await picoro::sleep_for(ctx, std::chrono::seconds(5));
             debug("Connecting to WiFi...\n");
             int rc = cyw43_arch_wifi_connect_async(SSID, password, CYW43_AUTH_WPA2_AES_PSK);
             if (rc) {
                 debug("Error connecting to wifi: %s.", pico_describe(rc));
                 // Blink a few times to show that there's a problem.
-                co_await blink(context, 10, std::chrono::milliseconds(250));
+                co_await blink(ctx, 10, std::chrono::milliseconds(250));
                 co_return;
             }
         } else if (wifi_status == CYW43_LINK_NONET) {
@@ -252,11 +254,11 @@ picoro::Coroutine<void> wifi_connect(async_context_t *context, const char *SSID,
             if (rc) {
                 debug("Error connecting to wifi: %s.", pico_describe(rc));
                 // Blink a few times to show that there's a problem.
-                co_await blink(context, 10, std::chrono::milliseconds(250));
+                co_await blink(ctx, 10, std::chrono::milliseconds(250));
                 co_return;
             }
         }
-        co_await picoro::sleep_for(context, std::chrono::seconds(1));
+        co_await picoro::sleep_for(ctx, std::chrono::seconds(1));
     }
 
     debug("Connected to WiFi.\n");
@@ -299,23 +301,41 @@ picoro::Coroutine<void> http_server(int port, int listen_backlog) {
     }
 }
 
-picoro::Coroutine<void> networking(async_context_t *context) {
-    co_await wifi_connect(context, "Annoying Saxophone", wifi_password);
+picoro::Coroutine<void> networking(async_context_t *ctx) {
+    co_await wifi_connect(ctx, "Annoying Saxophone", wifi_password);
     const int port = 80;
     const int listen_backlog = 1;
     co_await http_server(port, listen_backlog);
 }
 
-picoro::Coroutine<void> coroutine_main(async_context_t *context) {
-    co_await wait_for_usb_debug_attach(context, std::chrono::seconds(10));
+picoro::Coroutine<void> coroutine_main(async_context_t *ctx) {
+    co_await wait_for_usb_debug_attach(ctx, std::chrono::seconds(10));
     // Run the WiFi and server setup in the background.
-    auto server = networking(context);
+    auto server = networking(ctx);
     // Loop forever reading sensor data.
-    co_await monitor_scd4x(context);
+    co_await monitor_scd4x(ctx);
+}
+
+picoro::Coroutine<void> time_beacon(async_context_t *ctx) {
+    for (;;) {
+        watchdog_update();
+        const uint64_t microseconds = to_us_since_boot(get_absolute_time());
+        debug("%" PRIu64 " microseconds since boot.", microseconds);
+        co_await picoro::sleep_for(ctx, std::chrono::seconds(1));
+    }
 }
 
 int main() {
     stdio_init_all();
+
+    if (watchdog_caused_reboot()) {
+        printf("rebooted by watchdog\n");
+    }
+    // Watchdog is updated every second in `time_beacon`. If we miss five
+    // updates, then watchdog will reset the board.
+    const uint32_t timeout_ms = 5000;
+    const bool pause_on_debug = true;
+    watchdog_enable(timeout_ms, pause_on_debug);
 
     async_context_poll_t context = {};
     bool succeeded = async_context_poll_init_with_defaults(&context);
@@ -323,21 +343,20 @@ int main() {
         debug("Failed to initialize async_context_poll_t\n");
         return -2;
     }
+    async_context_t *const ctx = &context.core;
 
     // Do some WiFi chip setup here, just so that we can use the LED
     // immediately. The rest of the setup happens in `coroutine_main`.
-    cyw43_arch_set_async_context(&context.core);
-    lwip_nosys_init(&context.core);
+    cyw43_arch_set_async_context(ctx);
     // 🇺🇸 🦅
     if (cyw43_arch_init_with_country(CYW43_COUNTRY_USA)) {
         debug("failed to initialize WiFi\n");
         return 1;
     }
 
-    run_event_loop(&context.core, coroutine_main(&context.core));
+    run_event_loop(ctx, coroutine_main(ctx), time_beacon(ctx));
 
     // unreachable
-    lwip_nosys_deinit(&context.core);
     cyw43_arch_deinit();
-    async_context_deinit(&context.core);
+    async_context_deinit(ctx);
 }
