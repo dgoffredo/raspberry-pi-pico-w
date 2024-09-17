@@ -19,7 +19,11 @@ case "$2" in
   debug)
     build_type=Debug ;;
   *)
+<<<<<<< HEAD
     >&2 printf 'Specify one of "debug", "release", or "clean". For example: \n\n    bin/build %s debug\n\n' "$1"
+=======
+    >&2 printf 'Specify one of "debug", "release", or "clean". For example: \n\n    bin/build %s debug\n' "$1"
+>>>>>>> b5464303199476df830cc5ccbe8889bafdbdb9cc
     exit 3
 esac
 
