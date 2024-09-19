@@ -31,11 +31,14 @@ add_subdirectory(picoro)
 target_link_libraries(dht22
         picoro_coroutine
         picoro_drivers_dht22
+        picoro_drivers_sensirion_sht3x
         picoro_event_loop
         picoro_sleep
         picoro_tcp
 
         pico_stdlib
+
+        hardware_watchdog
         )
 
 # create map/bin/hex file etc.

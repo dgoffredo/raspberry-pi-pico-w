@@ -4,7 +4,7 @@
 # wifi password, etc.
 /secrets.py
 # output build directories for C code
-build-bin/
+build/
 # log file produced by GNU screen when using USB CDC
 screenlog.*
 # secrets in C++ code (e.g. WiFi password)

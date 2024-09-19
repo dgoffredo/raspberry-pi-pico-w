@@ -8,7 +8,7 @@ if [ "$1" = '' ]; then
 fi
 
 src=${1%/}
-out="$src/build-bin"
+out="$src/build"
 
 case "$2" in
   clean)
@@ -18,12 +18,10 @@ case "$2" in
     build_type=Release ;;
   debug)
     build_type=Debug ;;
+  size)
+    build_type=MinSizeRel ;;
   *)
-<<<<<<< HEAD
-    >&2 printf 'Specify one of "debug", "release", or "clean". For example: \n\n    bin/build %s debug\n\n' "$1"
-=======
-    >&2 printf 'Specify one of "debug", "release", or "clean". For example: \n\n    bin/build %s debug\n' "$1"
->>>>>>> b5464303199476df830cc5ccbe8889bafdbdb9cc
+    >&2 printf 'Specify one of "debug", "release", "size" or "clean". For example: \n\n    bin/build %s debug\n\n' "$1"
     exit 3
 esac
 

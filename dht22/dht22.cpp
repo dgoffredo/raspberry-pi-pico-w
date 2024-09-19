@@ -1,5 +1,6 @@
 #include <picoro/coroutine.h>
 #include <picoro/drivers/dht22.h>
+#include <picoro/drivers/sensirion/sht3x.h>
 #include <picoro/event_loop.h>
 #include <picoro/sleep.h>
 #include <picoro/tcp.h>
@@ -8,6 +9,9 @@
 #include <pico/cyw43_arch.h>
 #include <pico/stdio.h>
 
+#include <hardware/watchdog.h>
+
+#include <malloc.h>
 #include <tusb.h>
 
 #include "secrets.h" // `wifi_password`
@@ -22,6 +26,16 @@
     (void) sizeof(WHAT); \
   } while (false)
 
+uint32_t get_total_heap() {
+   extern char __StackLimit, __bss_end__;
+   return &__StackLimit  - &__bss_end__;
+}
+
+uint32_t get_free_heap() {
+   struct mallinfo const m = mallinfo();
+   return get_total_heap() - m.uordblks;
+}
+
 struct Measurement {
   int sequence_number = 0;
   float celsius = 0;
@@ -34,6 +48,8 @@ struct {
   Measurement top;
   Measurement middle;
   Measurement bottom;
+  Measurement sht30_topper;
+  Measurement sht30_top;
 } most_recent;
 
 int format_response(char (&buffer)[2048]) {
@@ -44,7 +60,11 @@ int format_response(char (&buffer)[2048]) {
     "\r\n"
     "{\"top\": {\"sequence_number\": %d, \"celsius\": %.1f, \"humidity_percent\": %.1f, \"timeouts\": %d, \"failed_checksums\": %d},"
     " \"middle\": {\"sequence_number\": %d, \"celsius\": %.1f, \"humidity_percent\": %.1f, \"timeouts\": %d, \"failed_checksums\": %d},"
-    " \"bottom\": {\"sequence_number\": %d, \"celsius\": %.1f, \"humidity_percent\": %.1f, \"timeouts\": %d, \"failed_checksums\": %d}"
+    " \"bottom\": {\"sequence_number\": %d, \"celsius\": %.1f, \"humidity_percent\": %.1f, \"timeouts\": %d, \"failed_checksums\": %d},"
+    " \"sht30_topper\": {\"sequence_number\": %d, \"celsius\": %.1f, \"humidity_percent\": %.1f, \"timeouts\": %d, \"failed_checksums\": %d},"
+    " \"sht30_top\": {\"sequence_number\": %d, \"celsius\": %.1f, \"humidity_percent\": %.1f, \"timeouts\": %d, \"failed_checksums\": %d},"
+    " \"free_heap_bytes\": %lu,"
+    " \"num_promises\": %d"
     "}",
     most_recent.top.sequence_number,
     most_recent.top.celsius,
@@ -60,7 +80,19 @@ int format_response(char (&buffer)[2048]) {
     most_recent.bottom.celsius,
     most_recent.bottom.humidity_percent,
     most_recent.bottom.timeouts,
-    most_recent.bottom.failed_checksums);
+    most_recent.bottom.failed_checksums,
+    most_recent.sht30_topper.sequence_number,
+    most_recent.sht30_topper.celsius,
+    most_recent.sht30_topper.humidity_percent,
+    most_recent.sht30_topper.timeouts,
+    most_recent.sht30_topper.failed_checksums,
+    most_recent.sht30_top.sequence_number,
+    most_recent.sht30_top.celsius,
+    most_recent.sht30_top.humidity_percent,
+    most_recent.sht30_top.timeouts,
+    most_recent.sht30_top.failed_checksums,
+    get_free_heap(),
+    picoro::num_promises);
 }
 
 const char *pico_describe(int error) {
@@ -143,6 +175,7 @@ picoro::Coroutine<void> wifi_connect(async_context_t *ctx, const char *SSID, con
 }
 
 picoro::Coroutine<void> handle_client(picoro::Connection conn) {
+    std::printf("Handling client connection.\n");
     char buffer[2048];
     // Read the request (ought to be less than 2K in size), and ignore it.
     auto [count, err] = co_await conn.recv(buffer, sizeof buffer);
@@ -154,6 +187,7 @@ picoro::Coroutine<void> handle_client(picoro::Connection conn) {
     if (err) {
         std::printf("handle_client: Error on send: %s\n", picoro::lwip_describe(err));
     }
+    std::printf("Finished handling client connection.\n");
 }
 
 picoro::Coroutine<void> http_server(int port, int listen_backlog) {
@@ -196,7 +230,7 @@ picoro::Coroutine<void> wait_for_usb_debug_attach(async_context_t *context, std:
     }
 }
 
-picoro::Coroutine<void> monitor_sensor(
+picoro::Coroutine<void> monitor_dht22(
     async_context_t *ctx,
     picoro::dht22::Driver *driver,
     PIO pio,
@@ -224,9 +258,10 @@ picoro::Coroutine<void> monitor_sensor(
       latest->celsius = celsius;
       latest->humidity_percent = humidity_percent;
       std::printf("{"
+        "\"dht22_power_pin\": %d, "
         "\"celsius\": %.1f, "
         "\"humidity_percent\": %.1f"
-      "}\n", celsius, humidity_percent);
+      "}\n", (int)power_pin, celsius, humidity_percent);
       continue; // skips the reset below
     case Sensor::TIMEOUT:
       ++latest->timeouts;
@@ -235,7 +270,7 @@ picoro::Coroutine<void> monitor_sensor(
       ++latest->failed_checksums;
       break;
     }
-    std::printf("{\"error\": \"%s\"}\n", Sensor::describe(rc));
+    std::printf("{\"dht22_power_pin\": %d, \"error\": \"%s\"}\n", (int)power_pin, Sensor::describe(rc));
     sensor.reset();
     // The sensor might have stopped responding. Power cycle the sensor.
     gpio_put(power_pin, 0);
@@ -247,9 +282,97 @@ picoro::Coroutine<void> monitor_sensor(
   }
 }
 
-picoro::Coroutine<void> sensors_main(async_context_t *ctx, picoro::dht22::Driver *driver) {
-  co_await wait_for_usb_debug_attach(ctx, std::chrono::seconds(3));
+picoro::Coroutine<void> monitor_sht30s(async_context_t *ctx) {
+  struct I2C {
+    i2c_inst_t *const instance = i2c0;
+    const uint desired_clock_hz = 400 * 1000;
+    const uint sda_pin = 4;
+    const uint scl_pin = 5;
 
+    void init() const {
+      const uint actual_baudrate = i2c_init(instance, desired_clock_hz);
+      picoro::debug("The I2C baudrate is %u Hz\n", actual_baudrate);
+      gpio_set_function(sda_pin, GPIO_FUNC_I2C);
+      gpio_set_function(scl_pin, GPIO_FUNC_I2C);
+      gpio_pull_up(sda_pin);
+      gpio_pull_up(scl_pin);
+    }
+
+    void deinit() const {
+      i2c_deinit(instance);
+      gpio_pull_down(sda_pin);
+      gpio_pull_down(scl_pin);
+    }
+  } i2c;
+
+  i2c.init();
+
+  // Each sensor is identified by which GPIO is powering it, and each is
+  // associated with a `Measurement` output.
+  // There will be only one `SHT3x` sensor object, because it can't tell the
+  // difference between different sensors connected to the same bus.
+  struct Sensor {
+    uint8_t power_pin;
+    Measurement *data;
+  } sensors[] = {
+    {.power_pin = 28, .data = &most_recent.sht30_topper},
+    {.power_pin = 8, .data = &most_recent.sht30_top}
+  };
+  const Sensor *enabled = &sensors[0];
+  for (const auto& sensor : sensors) {
+    gpio_init(sensor.power_pin);
+    gpio_pull_down(sensor.power_pin); // already is by default, but let's make sure
+    gpio_set_dir(sensor.power_pin, 1); // 1 means "write mode"
+    // 1 (true) means "high", 0 (false) means "low"
+    gpio_put(sensor.power_pin, &sensor == enabled);
+  }
+
+  // `select_sensor(const Sensor&)` powers down all sensors, resets the I2C bus,
+  // and then powers the specified `Sensor`.
+  // The bus reset is necessary because the sensors can keep functioning on SDL
+  // and SCL power. So, we pull those pins down for a short time before
+  // powering on the desired sensor.
+  const auto select_sensor = [&](const Sensor& sensor) -> picoro::Coroutine<void> {
+    for (const Sensor& s : sensors) {
+      gpio_put(s.power_pin, 0);
+    }
+    i2c.deinit();
+    co_await picoro::sleep_for(ctx, std::chrono::milliseconds(1));
+    i2c.init();
+    gpio_put(sensor.power_pin, 1);
+    co_await picoro::sleep_for(ctx, std::chrono::milliseconds(1));
+    enabled = &sensor;
+  };
+
+  picoro::sensirion::SHT3x sensor{ctx};
+  sensor.device.instance = i2c.instance;
+
+  for (int i = 0; ; ++i, co_await select_sensor(sensors[i % std::size(sensors)])) {
+    co_await picoro::sleep_for(ctx, std::chrono::seconds(2));
+    float celsius, percent;
+    if (int rc = co_await sensor.measure_single_shot_high_repeatability(&celsius, &percent)) {
+      std::printf("{\"sht30_power_pin\": %d,  \"error\": \"%s\"}\n", (int)enabled->power_pin, pico_describe(rc));
+      switch (rc) {
+      case PICO_ERROR_TIMEOUT:
+        ++enabled->data->timeouts;
+        break;
+      case PICO_ERROR_GENERIC:
+        ++enabled->data->failed_checksums;
+      }
+      continue;
+    }
+    std::printf("{"
+      "\"sht30_power_pin\": %d, "
+      "\"celsius\": %.1f, "
+      "\"humidity_percent\": %.1f"
+      "}\n", (int)enabled->power_pin, celsius, percent);
+    ++enabled->data->sequence_number;
+    enabled->data->celsius = celsius;
+    enabled->data->humidity_percent = percent;
+  }
+}
+
+picoro::Coroutine<void> sensors_main(async_context_t *ctx, picoro::dht22::Driver *driver) {
   struct {
     uint data_pin;
     uint power_pin;
@@ -261,12 +384,34 @@ picoro::Coroutine<void> sensors_main(async_context_t *ctx, picoro::dht22::Driver
   };
 
   for (const auto [data_pin, power_pin, data] : sensors) {
-    monitor_sensor(ctx, driver, pio0, data_pin, power_pin, data).detach();
+    monitor_dht22(ctx, driver, pio0, data_pin, power_pin, data).detach();
   }
+
+  co_await monitor_sht30s(ctx);
+}
+
+picoro::Coroutine<void> watchdog_beacon(async_context_t *ctx) {
+  for (;;) {
+    watchdog_update();
+    co_await picoro::sleep_for(ctx, std::chrono::seconds(1));
+  }
+}
+
+picoro::Coroutine<void> coroutine_main(async_context_t *ctx, picoro::dht22::Driver *driver) {
+  watchdog_beacon(ctx).detach();
+  co_await wait_for_usb_debug_attach(ctx, std::chrono::seconds(3));
+  sensors_main(ctx, driver).detach();
+  co_await networking(ctx);
 }
 
 int main() {
     stdio_init_all();
+
+    // Watchdog is updated every second in `watchdog_beacon`. If we miss five
+    // updates, then watchdog will reset the board.
+    const uint32_t timeout_ms = 5000;
+    const bool pause_on_debug = true;
+    watchdog_enable(timeout_ms, pause_on_debug);
 
     async_context_poll_t context;
     const bool ok = async_context_poll_init_with_defaults(&context);
@@ -284,12 +429,7 @@ int main() {
     constexpr int which_dma_irq = 0;
     picoro::dht22::Driver driver(ctx, which_dma_irq);
 
-    picoro::run_event_loop(ctx,
-        sensors_main(ctx, &driver),
-        networking(ctx));
-
-    // unreachable
-    async_context_deinit(ctx);
+    picoro::run_event_loop(ctx, coroutine_main(ctx, &driver));
 
     // unreachable
     cyw43_arch_deinit();

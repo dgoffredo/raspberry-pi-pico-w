@@ -10,3 +10,6 @@
 [submodule "embedded-i2c-sht3x"]
 	path = embedded-i2c-sht3x
 	url = https://github.com/Sensirion/embedded-i2c-sht3x
+[submodule "access-point/picoro"]
+	path = access-point/picoro
+	url = git@github.com:dgoffredo/picoro.git
