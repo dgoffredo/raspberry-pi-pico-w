@@ -43,10 +43,8 @@ int main() {
   printf(" hai\n");
 
   const uint button_gpio = 16;
-  gpio_set_function(button_gpio, GPIO_FUNC_XIP);
+  gpio_set_dir(button_gpio, GPIO_IN);
   gpio_pull_up(button_gpio);
-
-  // gpio_add_raw_irq_handler (button_gpio, irq_handler_t handler);
   const bool enabled = true;
   const uint32_t event_mask = GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL;
   gpio_set_irq_enabled_with_callback (button_gpio, event_mask, enabled, gpio_irq_handler);

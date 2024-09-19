@@ -142,6 +142,11 @@ void SevenSegmentDisplay::brightness(unsigned magnitude) {
 int main() {
   stdio_init_all();
 
+  // Make sure that GPIO 9 is in input mode (high impedance), because it's
+  // shorted to 3.3V.
+  gpio_init(9);
+  gpio_set_dir(9, GPIO_IN);
+
   // Wait for the host to attach to the USB terminal (i.e. ttyACM0).
   // Give up after 10 seconds.
   for (int i = 0; i < 10 && !tud_cdc_connected(); ++i) {
@@ -152,8 +157,8 @@ int main() {
   }
 
   // I²C GPIO pins
-  const uint sda_pin = 26;
-  const uint scl_pin = 27;
+  const uint sda_pin = 10;
+  const uint scl_pin = 11;
   // I²C clock rate
   const uint clock_hz = 400 * 1000;
 
@@ -170,6 +175,8 @@ int main() {
     .scl_gpio = scl_pin,
     .sda_gpio = sda_pin
   });
+
+  display.brightness(1);
 
   for (int i = 0; i < 10'000; ++i) {
     display.number(i, SevenSegmentDisplay::OMIT_LEADING_ZEROS);

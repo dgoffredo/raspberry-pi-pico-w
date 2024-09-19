@@ -13,3 +13,6 @@
 [submodule "access-point/picoro"]
 	path = access-point/picoro
 	url = git@github.com:dgoffredo/picoro.git
+[submodule "co2-seven-segment/picoro"]
+	path = co2-seven-segment/picoro
+	url = git@github.com:dgoffredo/picoro.git
