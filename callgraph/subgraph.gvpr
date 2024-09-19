@@ -1,0 +1,24 @@
+// Construct subgraph reachable from node ARGV[0] by forward edges.
+// This is from <https://forum.graphviz.org/t/print-only-specified-node-and-its-dependencies-from-large-graph/1011/4>
+
+BEG_G {
+  $tvroot = node($, ARGV[0]);
+  // Depth-first traversal following forward edges only. Starts at $tvroot.
+  $tvtype = TV_fwd;
+}
+
+N {
+  // Setting the root of the next graph to NULL which means "stop after we've
+  // processed the current graph." This behavior is part of $tvtype.
+  // We set the root to NULL multiples times -- once for every node -- though
+  // setting it only once would suffice.
+  $tvroot = NULL;
+  // Add the current node ($) to the target subgraph ($T).
+  subnode($T, $);
+}
+
+E {
+  // Add the current edge ($) to the target subgraph ($T).
+  subedge($T, $);
+}
+

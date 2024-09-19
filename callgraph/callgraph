@@ -1,0 +1,22 @@
+sht3x_measure_single_shot_high_repeatability
+  sensirion_common_bytes_to_uint16_t
+  sensirion_i2c_hal_sleep_usec
+    sleep_us
+  sensirion_i2c_add_command16_to_buffer
+  sensirion_i2c_write_data
+    sensirion_i2c_hal_write
+      i2c_write_timeout_us
+        make_timeout_time_us
+          get_absolute_time
+            update_us_since_boot
+              __assert_fail
+            time_us_64
+          delayed_by_us
+            to_us_since_boot
+        i2c_write_blocking_until
+  sensirion_i2c_read_data_inplace
+    sensirion_i2c_hal_read
+      i2c_read_timeout_us
+        i2c_read_blocking_until
+    sensirion_i2c_check_crc
+      sensirion_i2c_generate_crc

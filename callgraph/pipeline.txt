@@ -1,0 +1,2 @@
+find embedded-i2c-sht3x/build-bin -type f -name '*.gkd' -print0 | xargs -0 egypt | gvpr -f subgraph.gvpr -a 'sht3x_measure_single_shot_high_repeatability' | dot -Tsvg >~/Desktop/callgraph.svg
+

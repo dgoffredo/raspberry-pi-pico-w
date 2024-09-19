@@ -1,0 +1,21 @@
+BEGIN {
+  int i, indent;
+  int seen[string];
+  void prInd (int cnt) {
+    for (i = 0; i < cnt; i++) printf ("  ");
+  }
+}
+BEG_G {
+
+   $tvtype = TV_prepostfwd;
+   $tvroot = node($,ARGV[0]);
+}
+N {
+  if (seen[$.name]) indent--;
+  else {
+    prInd(indent);
+      print ($.name, $.label);
+    seen[$.name] = 1;
+    indent++;
+  }
+}

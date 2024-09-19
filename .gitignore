@@ -9,3 +9,5 @@ build/
 screenlog.*
 # secrets in C++ code (e.g. WiFi password)
 secrets.h
+# some clangd shit
+.cache/

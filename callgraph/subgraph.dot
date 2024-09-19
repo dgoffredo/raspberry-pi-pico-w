@@ -1,0 +1,33 @@
+// subgraph node: main
+// subgraph edge: main->sht3x_measure_single_shot_high_repeatability
+// subgraph node: sht3x_measure_single_shot_high_repeatability
+// subgraph edge: sht3x_measure_single_shot_high_repeatability->sensirion_common_bytes_to_uint16_t
+// subgraph node: sensirion_common_bytes_to_uint16_t
+// subgraph edge: sht3x_measure_single_shot_high_repeatability->sensirion_i2c_add_command16_to_buffer
+// subgraph node: sensirion_i2c_add_command16_to_buffer
+// subgraph edge: sht3x_measure_single_shot_high_repeatability->sensirion_i2c_hal_sleep_usec
+// subgraph node: sensirion_i2c_hal_sleep_usec
+// subgraph edge: sht3x_measure_single_shot_high_repeatability->sensirion_i2c_read_data_inplace
+// subgraph node: sensirion_i2c_read_data_inplace
+// subgraph edge: sensirion_i2c_read_data_inplace->sensirion_i2c_check_crc
+// subgraph node: sensirion_i2c_check_crc
+// subgraph edge: sensirion_i2c_check_crc->sensirion_i2c_generate_crc
+// subgraph node: sensirion_i2c_generate_crc
+// subgraph edge: sensirion_i2c_read_data_inplace->sensirion_i2c_hal_read
+// subgraph node: sensirion_i2c_hal_read
+// subgraph edge: sht3x_measure_single_shot_high_repeatability->sensirion_i2c_write_data
+// subgraph node: sensirion_i2c_write_data
+// subgraph edge: sensirion_i2c_write_data->sensirion_i2c_hal_write
+// subgraph node: sensirion_i2c_hal_write
+digraph gvpr_result {
+	main -> sht3x_measure_single_shot_high_repeatability	[style=solid];
+	sensirion_i2c_check_crc -> sensirion_i2c_generate_crc	[style=solid];
+	sensirion_i2c_read_data_inplace -> sensirion_i2c_check_crc	[style=solid];
+	sensirion_i2c_read_data_inplace -> sensirion_i2c_hal_read	[style=solid];
+	sensirion_i2c_write_data -> sensirion_i2c_hal_write	[style=solid];
+	sht3x_measure_single_shot_high_repeatability -> sensirion_common_bytes_to_uint16_t	[style=solid];
+	sht3x_measure_single_shot_high_repeatability -> sensirion_i2c_add_command16_to_buffer	[style=solid];
+	sht3x_measure_single_shot_high_repeatability -> sensirion_i2c_hal_sleep_usec	[style=solid];
+	sht3x_measure_single_shot_high_repeatability -> sensirion_i2c_read_data_inplace	[style=solid];
+	sht3x_measure_single_shot_high_repeatability -> sensirion_i2c_write_data	[style=solid];
+}

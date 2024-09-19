@@ -43,7 +43,7 @@ const char *describe(err_t error) {
 }
 
 struct Measurement {
-    unsigned sequence_number = 0; 
+    unsigned sequence_number = 0;
     uint16_t co2_ppm = 0;
     int32_t temperature_millicelsius = 0;
     int32_t relative_humidity_millipercent = 0;
@@ -66,7 +66,7 @@ int format_response(
         " \"CO2_ppm\": %hu,"
         " \"temperature_celsius\": %ld.%03ld,"
         " \"relative_humidity_percent\": %ld.%03ld}";
-    
+
     return std::snprintf(
         buffer.data(),
         buffer_size,
@@ -96,7 +96,7 @@ err_t send_response(Client& client, tcp_pcb *client_pcb) {
         return err;
     }
 
-    err = tcp_output(client_pcb); 	
+    err = tcp_output(client_pcb);
     if (err) {
         debug("tcp_output error: %s\n", describe(err));
     }
@@ -234,7 +234,7 @@ int main() {
     }
 
     debug("Connected to WiFi.\n");
-    
+
     setup_http_server(80);
 
     debug("Entering event loop.\n");
