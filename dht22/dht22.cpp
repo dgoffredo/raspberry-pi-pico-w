@@ -395,6 +395,14 @@ picoro::Coroutine<void> watchdog_beacon(async_context_t *ctx) {
     watchdog_update();
     co_await picoro::sleep_for(ctx, std::chrono::seconds(1));
   }
+
+  co_await monitor_sht30s(ctx);
+}
+
+picoro::Coroutine<void> coroutine_main(async_context_t *ctx, picoro::dht22::Driver *driver) {
+  co_await wait_for_usb_debug_attach(ctx, std::chrono::seconds(3));
+  sensors_main(ctx, driver).detach();
+  co_await networking(ctx);
 }
 
 picoro::Coroutine<void> coroutine_main(async_context_t *ctx, picoro::dht22::Driver *driver) {
