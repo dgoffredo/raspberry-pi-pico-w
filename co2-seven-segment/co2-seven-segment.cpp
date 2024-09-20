@@ -258,6 +258,7 @@ struct Measurements {
 
 struct Button {
   async_when_pending_worker worker;
+  async_context_t *ctx;
   std::uint8_t gpio;
   volatile int event_count;
   SevenSegmentDisplay *display;
@@ -281,6 +282,7 @@ struct Button {
     .work_pending = false,
     .user_data = nullptr, // will cast instead
   },
+  .ctx = nullptr, // initialized in `main()`
   .gpio = 16,
   .event_count = 0,
   .display = nullptr, // initialized in `main()`
@@ -333,7 +335,7 @@ void gpio_irq_handler(uint gpio, uint32_t event_mask) {
   };
   button.next_write = (button.next_write + 1) % std::size(button.events);
 
-  button.worker.work_pending = true;
+  async_context_set_work_pending(button.ctx, &button.worker);
 }
 
 int main() {
@@ -365,7 +367,6 @@ int main() {
   });
 
   display.brightness(1);
-  button.display = &display;
 
   async_context_poll_t context = {};
   bool succeeded = async_context_poll_init_with_defaults(&context);
@@ -382,6 +383,8 @@ int main() {
   }
 
   // Set up the button.
+  button.display = &display;
+  button.ctx = ctx;
   async_context_add_when_pending_worker(ctx, &button.worker);
   const uint button_gpio = 16;
   gpio_set_dir(button_gpio, GPIO_IN);
