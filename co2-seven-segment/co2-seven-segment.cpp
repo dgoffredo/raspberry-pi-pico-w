@@ -140,9 +140,7 @@ void SevenSegmentDisplay::number(unsigned number, SevenSegmentDisplay::LeadingZe
   if (show || digit0 + digit1 + digit2) {
     digit(2, digit2);
   }
-  if (show || digit0 + digit1 + digit2 + digit3) {
-    digit(3, digit3);
-  }
+  digit(3, digit3);
 }
 
 inline
@@ -166,6 +164,14 @@ void SevenSegmentDisplay::brightness(unsigned magnitude) {
   constexpr std::uint8_t brightness_command = 0xE0;
   std::uint8_t data = brightness_command | magnitude;
   write(&data, 1);
+
+  // When you set the brightness to, say, 7, then the display shows "br 7".
+  const std::uint8_t b = 0x7C;
+  const std::uint8_t r = 0x50;
+  number(magnitude, OMIT_LEADING_ZEROS);
+  buffer[1 + 0 * 2] = b;
+  buffer[1 + 1 * 2] = r;
+  update();
 }
 
 picoro::Coroutine<bool> data_ready(const picoro::sensirion::SCD4x &sensor) {
@@ -248,6 +254,7 @@ picoro::Coroutine<void> boing_boing(
   }
 }
 
+/* TODO
 struct Measurements {
   absolute_time_t first_measurement;
   std::vector<std::uint16_t> co2_ppm;
@@ -255,6 +262,7 @@ struct Measurements {
   .first_measurement = nil_time,
   .co2_ppm = {}
 };
+*/
 
 struct Button {
   async_when_pending_worker worker;
@@ -270,6 +278,7 @@ struct Button {
   };
 
   Event events[8];
+  absolute_time_t previous;
   volatile unsigned next_write;
   unsigned next_read;
 
@@ -286,8 +295,9 @@ struct Button {
   .gpio = 16,
   .event_count = 0,
   .display = nullptr, // initialized in `main()`
-  .brightness = 1,
+  .brightness = 0,
   .events = {},
+  .previous = nil_time,
   .next_write = 0,
   .next_read = 0,
   .state = Button::up
@@ -296,7 +306,7 @@ struct Button {
 void Button::do_work(async_context_t*, async_when_pending_worker_t* worker) {
   auto *button = reinterpret_cast<Button*>(worker);
   std::printf("Button event %d with masks:", button->event_count);
-  absolute_time_t time = button->events[button->next_read].when;
+  absolute_time_t time = button->previous;
   for (
       int i = 0;
       button->next_read != button->next_write;
@@ -304,7 +314,7 @@ void Button::do_work(async_context_t*, async_when_pending_worker_t* worker) {
     auto new_time = button->events[button->next_read].when;
     int millis = absolute_time_diff_us(time, new_time) / 1000;
     auto mask = button->events[button->next_read].mask;
-    if (i == 0 || millis > 50) {
+    if (is_nil_time(time) || millis > 50) {
       std::printf(" [%d %lu]", millis, mask);
       if (button->state == Button::up && (mask & 4)) {
         button->state = Button::down;
@@ -319,6 +329,7 @@ void Button::do_work(async_context_t*, async_when_pending_worker_t* worker) {
     }
     time = new_time;
   }
+  button->previous = time;
   std::printf("\n");
 }
 
@@ -366,7 +377,7 @@ int main() {
     .sda_gpio = sda_pin
   });
 
-  display.brightness(1);
+  display.brightness(0);
 
   async_context_poll_t context = {};
   bool succeeded = async_context_poll_init_with_defaults(&context);
@@ -386,12 +397,11 @@ int main() {
   button.display = &display;
   button.ctx = ctx;
   async_context_add_when_pending_worker(ctx, &button.worker);
-  const uint button_gpio = 16;
-  gpio_set_dir(button_gpio, GPIO_IN);
-  gpio_pull_up(button_gpio);
+  gpio_set_dir(button.gpio, GPIO_IN);
+  gpio_pull_up(button.gpio);
   const bool enabled = true;
   const uint32_t event_mask = GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL;
-  gpio_set_irq_enabled_with_callback (button_gpio, event_mask, enabled, gpio_irq_handler);
+  gpio_set_irq_enabled_with_callback (button.gpio, event_mask, enabled, gpio_irq_handler);
 
   bool stop_boing_boing = false;
 
