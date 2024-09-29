@@ -165,10 +165,10 @@ void SevenSegmentDisplay::brightness(unsigned magnitude) {
   std::uint8_t data = brightness_command | magnitude;
   write(&data, 1);
 
-  // When you set the brightness to, say, 7, then the display shows "br 7".
+  // When you set the brightness to, say, 7, then the display shows "br 8".
   const std::uint8_t b = 0x7C;
   const std::uint8_t r = 0x50;
-  number(magnitude, OMIT_LEADING_ZEROS);
+  number(magnitude + 1, OMIT_LEADING_ZEROS);
   buffer[1 + 0 * 2] = b;
   buffer[1 + 1 * 2] = r;
   update();
