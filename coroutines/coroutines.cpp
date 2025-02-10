@@ -145,12 +145,12 @@ picoro::Coroutine<bool> data_ready(const sensirion::SCD4x& sensor) {
 
 picoro::Coroutine<void> monitor_scd4x(async_context_t *ctx) {
     // I²C GPIO pins
-    const uint sda_pin = 26;
-    const uint scl_pin = 27;
+    const uint sda_pin = 12;
+    const uint scl_pin = 13;
     // I²C clock rate
     const uint clock_hz = 400 * 1000;
 
-    i2c_inst_t *const instance = i2c1;
+    i2c_inst_t *const instance = i2c0;
     const uint actual_baudrate = i2c_init(instance, clock_hz);
     std::printf("The actual I2C baudrate is %u Hz\n", actual_baudrate);
     gpio_set_function(sda_pin, GPIO_FUNC_I2C);
