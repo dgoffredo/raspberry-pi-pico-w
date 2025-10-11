@@ -63,8 +63,7 @@ int format_response(char (&buffer)[2048]) {
     " \"bottom\": {\"sequence_number\": %d, \"celsius\": %.1f, \"humidity_percent\": %.1f, \"timeouts\": %d, \"failed_checksums\": %d},"
     " \"sht30_topper\": {\"sequence_number\": %d, \"celsius\": %.1f, \"humidity_percent\": %.1f, \"timeouts\": %d, \"failed_checksums\": %d},"
     " \"sht30_top\": {\"sequence_number\": %d, \"celsius\": %.1f, \"humidity_percent\": %.1f, \"timeouts\": %d, \"failed_checksums\": %d},"
-    " \"free_heap_bytes\": %lu,"
-    " \"num_promises\": %d"
+    " \"free_heap_bytes\": %lu"
     "}",
     most_recent.top.sequence_number,
     most_recent.top.celsius,
@@ -91,8 +90,7 @@ int format_response(char (&buffer)[2048]) {
     most_recent.sht30_top.humidity_percent,
     most_recent.sht30_top.timeouts,
     most_recent.sht30_top.failed_checksums,
-    get_free_heap(),
-    picoro::num_promises);
+    get_free_heap());
 }
 
 const char *pico_describe(int error) {
@@ -395,14 +393,6 @@ picoro::Coroutine<void> watchdog_beacon(async_context_t *ctx) {
     watchdog_update();
     co_await picoro::sleep_for(ctx, std::chrono::seconds(1));
   }
-
-  co_await monitor_sht30s(ctx);
-}
-
-picoro::Coroutine<void> coroutine_main(async_context_t *ctx, picoro::dht22::Driver *driver) {
-  co_await wait_for_usb_debug_attach(ctx, std::chrono::seconds(3));
-  sensors_main(ctx, driver).detach();
-  co_await networking(ctx);
 }
 
 picoro::Coroutine<void> coroutine_main(async_context_t *ctx, picoro::dht22::Driver *driver) {
