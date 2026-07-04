@@ -11,7 +11,7 @@ dir=${1%/}
 
 # This path might be Ubuntu or Debian specific.
 # pico="/media/$USER/RPI-RP2/"
-pico="/media/$USER/RP2350/"
+pico="/run/media/$USER/RP2350/"
 if ! [ -e "$pico" ]; then
   >&2 printf 'Error: The expected mass storage location %s was not found.\n' "$pico"
   >&2 printf 'Is the Pico in boot select mode?\n'

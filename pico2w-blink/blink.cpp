@@ -75,7 +75,7 @@ int main() {
     // printf(".");
     // Undefined behavior is fun!
     printf("%llu\n", frames_encountered);
-    
+
     if (!disengaged && frames_encountered > 16) {
       printf("I'm about to set monitor mode off.\n");
       rc = cyw43_set_monitor_mode(&cyw43_state, 0, &on_frame);
