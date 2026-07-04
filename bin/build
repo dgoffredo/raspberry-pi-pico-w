@@ -3,7 +3,7 @@
 set -e
 
 if [ "$1" = '' ]; then
-  >&2 printf 'usage: %s SOURCE_DIRECTORY\n' "$0"
+  >&2 printf 'usage: %s SOURCE_DIRECTORY <debug|release|size|clean>\n' "$0"
   exit 1
 fi
 

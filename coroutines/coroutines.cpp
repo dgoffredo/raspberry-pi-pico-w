@@ -266,7 +266,7 @@ picoro::Coroutine<void> wifi_connect(async_context_t *ctx, const char *SSID, con
 
 picoro::Coroutine<void> handle_client(picoro::Connection conn) {
     debug("in handle_client(...), about to await recv()\n");
-    char readbuf[2048];
+    static char readbuf[2048]; // write-only, unused
     auto [count, err] = co_await conn.recv(readbuf, sizeof readbuf);
     debug("in handle_client(...), received %d bytes with error %s\n", count, picoro::lwip_describe(err));
     if (err) {
