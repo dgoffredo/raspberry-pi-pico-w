@@ -10,10 +10,10 @@ fi
 dir=${1%/}
 
 # This path might be Ubuntu or Debian specific.
-# pico="/media/$USER/RPI-RP2/"
-pico="/run/media/$USER/RP2350/"
+pico_prefix="/run/media/$USER/"
+pico=$(find "$pico_prefix" -type d \( -name 'RPI-RP2' -o -name 'RP2350' \) | head -1)
 if ! [ -e "$pico" ]; then
-  >&2 printf 'Error: The expected mass storage location %s was not found.\n' "$pico"
+  >&2 printf 'Error: The expected mass storage location was not found under %s.\n' "$pico_prefix"
   >&2 printf 'Is the Pico in boot select mode?\n'
   exit 2
 fi

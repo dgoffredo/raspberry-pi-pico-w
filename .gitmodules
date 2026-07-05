@@ -19,3 +19,6 @@
 [submodule "pico2w-server/picoro"]
 	path = pico2w-server/picoro
 	url = git@github.com:dgoffredo/picoro.git
+[submodule "coroutines/picoro"]
+	path = coroutines/picoro
+	url = git@github.com:dgoffredo/picoro.git
