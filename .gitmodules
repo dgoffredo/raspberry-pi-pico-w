@@ -16,3 +16,6 @@
 [submodule "co2-seven-segment/picoro"]
 	path = co2-seven-segment/picoro
 	url = git@github.com:dgoffredo/picoro.git
+[submodule "pico2w-server/picoro"]
+	path = pico2w-server/picoro
+	url = git@github.com:dgoffredo/picoro.git
