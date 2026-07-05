@@ -1,31 +1,23 @@
 #include "pico/async_context_poll.h"
-#include "pico/binary_info.h"
 #include "pico/cyw43_arch.h"
-#include "pico/stdlib.h"
 #include <tusb.h>
 
 #include <malloc.h>
-#include <stddef.h>
-#include <stdio.h>
-#include <stdlib.h>
 
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cinttypes>
-#include <cmath>
-#include <cmath>
 #include <cstdio>
-#include <iterator>
 
 #include <hardware/watchdog.h>
+
 #include <picoro/broadcaster.h>
 #include <picoro/coroutine.h>
 #include <picoro/debug.h>
 #include <picoro/event_loop.h>
 #include <picoro/sleep.h>
 #include <picoro/tcp.h>
-#include <picoro/drivers/sensirion/scd4x.h>
 
 #include "secrets.h"
 
@@ -195,73 +187,17 @@ picoro::Coroutine<void> wait_for_usb_debug_attach(async_context_t *ctx, std::chr
     std::printf("Glad you could make it.\n");
 }
 
-picoro::Coroutine<bool> data_ready(const picoro::sensirion::SCD4x& sensor) {
-    bool result;
-    int rc = co_await sensor.get_data_ready_flag(&result);
-    if (rc) {
-        picoro::debug("Unable to query whether the sensor has data ready. Error code %d.\n", rc);
-        co_return false;
-    }
-    co_return result;
-}
-
 picoro::Broadcaster<Measurement>& broadcaster() {
     static picoro::Broadcaster<Measurement> instance;
     return instance;
 }
 
 picoro::Coroutine<void> monitor_scd4x(async_context_t *ctx) {
-    // I²C GPIO pins
-    const uint sda_pin = 12;
-    const uint scl_pin = 13;
-    // I²C clock rate
-    const uint clock_hz = 400 * 1000;
-
-    i2c_inst_t *const instance = i2c0;
-    const uint actual_baudrate = i2c_init(instance, clock_hz);
-    std::printf("The actual I2C baudrate is %u Hz\n", actual_baudrate);
-    gpio_set_function(sda_pin, GPIO_FUNC_I2C);
-    gpio_set_function(scl_pin, GPIO_FUNC_I2C);
-    gpio_pull_up(sda_pin);
-    gpio_pull_up(scl_pin);
-
-    picoro::sensirion::SCD4x sensor{ctx};
-    sensor.device.instance = instance;
-
-    int rc = co_await sensor.set_automatic_self_calibration(0);
-    if (rc) {
-        picoro::debug("Unable to disable automatic self-calibration. Error code %d.\n", rc);
-    }
-
-    rc = co_await sensor.start_periodic_measurement();
-    if (rc) {
-        picoro::debug("Unable to start periodic measurement mode. Error code %d.\n", rc);
-    }
-
-    for (;;) {
-        co_await picoro::sleep_for(ctx, std::chrono::seconds(5));
-        while (! co_await data_ready(sensor)) {
-            co_await picoro::sleep_for(ctx, std::chrono::seconds(1));
-        }
-
-        uint16_t co2_ppm;
-        int32_t temperature_millicelsius;
-        int32_t relative_humidity_millipercent;
-        rc = co_await sensor.read_measurement(&co2_ppm, &temperature_millicelsius, &relative_humidity_millipercent);
-        if (rc) {
-            picoro::debug("Unable to read sensor measurement. Error code %d.\n", rc);
-        } else {
-            std::printf("CO2: %hu ppm\ttemperature: %.1f C\thumidity: %.1f%%\n", co2_ppm, temperature_millicelsius / 1000.0f, relative_humidity_millipercent / 1000.0f);
-            ++latest.sequence_number;
-            latest.co2_ppm = co2_ppm;
-            latest.temperature_millicelsius = temperature_millicelsius;
-            latest.relative_humidity_millipercent = relative_humidity_millipercent;
-            broadcaster().publish(latest);
-        }
-    }
-
-    // unreachable
-    i2c_deinit(instance);
+  for (;;) {
+    ++latest.sequence_number;
+    broadcaster().publish(latest);
+    co_await picoro::sleep_for(ctx, std::chrono::seconds(1));
+  }
 }
 
 picoro::Coroutine<void> blink(async_context_t *ctx, int times, std::chrono::milliseconds period) {
@@ -341,37 +277,24 @@ picoro::Coroutine<void> handle_client(picoro::Connection conn) {
       picoro::debug("in handle_client(...), since there was an error, I'm closing the connection and returning.\n");
       co_return;
     }
-
     std::array<char, max_response_length + 1> buffer;
     picoro::debug("in handle_client(...), about to format response and await send()\n");
-    // GET /measurements
-    //     Stream future measurements as JSON lines in a single chunked response.
-    //
-    // GET /latest
-    // <or anything else>
-    //     Return the most recent measurement immediately a close the connection.
-    if (std::string_view(readbuf, count).starts_with("GET /measurements HTTP/1.1\r\n")) {
-        count = format_chunked_response_header(buffer);
+    count = format_chunked_response_header(buffer);
+    std::tie(count, err) = co_await conn.send(std::string_view(buffer.data(), count));
+    if (err) {
+        picoro::debug("Error sending headers: %s\n", picoro::lwip_describe(err));
+        co_return;
+    }
+    for (;;) {
+        Measurement next = co_await broadcaster().next();
+        count = format_response_chunk(buffer, next);
+        picoro::debug("handle_client(...), about to send() a chunk.\n");
         std::tie(count, err) = co_await conn.send(std::string_view(buffer.data(), count));
+        picoro::debug("handle_client(...), finished send(). Sent %d bytes with error %s.\n", count, picoro::lwip_describe(err));
         if (err) {
-            picoro::debug("Error sending headers: %s\n", picoro::lwip_describe(err));
+            picoro::debug("handle_client(...), send() had an error, so finishing handle_client\n");
             co_return;
         }
-        for (;;) {
-            Measurement next = co_await broadcaster().next();
-            count = format_response_chunk(buffer, next);
-            picoro::debug("handle_client(...), about to send() a chunk.\n");
-            std::tie(count, err) = co_await conn.send(std::string_view(buffer.data(), count));
-            picoro::debug("handle_client(...), finished send(). Sent %d bytes with error %s.\n", count, picoro::lwip_describe(err));
-            if (err) {
-                picoro::debug("handle_client(...), send() had an error, so finishing handle_client\n");
-                co_return;
-            }
-        }
-    } else {
-        count = format_response(buffer, latest);
-        std::tie(count, err) = co_await conn.send(std::string_view(buffer.data(), count));
-        picoro::debug("handle_client(...), finished send(). Sent %d bytes with error %s. About to close and return.\n", count, picoro::lwip_describe(err));
     }
 }
 
@@ -455,3 +378,4 @@ int main() {
     cyw43_arch_deinit();
     async_context_deinit(ctx);
 }
+

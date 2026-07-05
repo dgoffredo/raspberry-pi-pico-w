@@ -20,16 +20,25 @@ add_executable(coroutines
         )
 
 # Enable coroutines (GCC 10 requires a flag) and stricter warnings for our C++ code only.
-set_source_files_properties(coroutines.cpp picoro.h secrets.h scd4x.h lwipopts.h
+set_source_files_properties(coroutines.cpp secrets.h lwipopts/lwipopts.h
         PROPERTIES COMPILE_OPTIONS -fcoroutines -Wextra -pedantic)
 
-# Make our lwipopts.h visible to lwip, which includes it.
+# Make our lwipopts.h visible to lwIP, which includes it.
 target_include_directories(coroutines PRIVATE
-        ${CMAKE_CURRENT_LIST_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}/lwipopts
         )
 
+add_subdirectory(picoro)
+
 target_link_libraries(coroutines
-        hardware_i2c
+        picoro_broadcaster
+        picoro_coroutine
+        picoro_debug
+        picoro_drivers_sensirion_scd4x
+        picoro_event_loop
+        picoro_sleep
+        picoro_tcp
+
         hardware_watchdog
         pico_async_context_poll
         pico_cyw43_arch_lwip_poll
