@@ -228,10 +228,14 @@ picoro::Coroutine<void> monitor_scd4x(async_context_t *ctx) {
     picoro::sensirion::SCD4x sensor{ctx};
     sensor.device.instance = instance;
 
-    int rc = co_await sensor.set_automatic_self_calibration(0);
-    if (rc) {
-        picoro::debug("Unable to disable automatic self-calibration. Error code %d.\n", rc);
-    }
+    int rc;
+    // Actually, leave automatic calibration on. As long as I keep the windows
+    // open once and a while, this might will be enough to keep the calibration
+    // from drifting.
+    // rc = co_await sensor.set_automatic_self_calibration(0);
+    // if (rc) {
+    //     picoro::debug("Unable to disable automatic self-calibration. Error code %d.\n", rc);
+    // }
 
     rc = co_await sensor.start_periodic_measurement();
     if (rc) {
@@ -282,11 +286,11 @@ picoro::Coroutine<void> wifi_connect(async_context_t *ctx, const char *SSID, con
     } led_guard;
 
     cyw43_arch_enable_sta_mode();
-    // const uint32_t ultra_performance_giga_chad_power_mode =
-    //     cyw43_pm_value(CYW43_NO_POWERSAVE_MODE, 20, 1, 1, 1);
-    // cyw43_wifi_pm(&cyw43_state, ultra_performance_giga_chad_power_mode);
+    const uint32_t ultra_performance_giga_chad_power_mode =
+        cyw43_pm_value(CYW43_NO_POWERSAVE_MODE, 20, 1, 1, 1);
+    cyw43_wifi_pm(&cyw43_state, ultra_performance_giga_chad_power_mode);
     // cyw43_wifi_pm(&cyw43_state, CYW43_PERFORMANCE_PM);
-    cyw43_wifi_pm(&cyw43_state, CYW43_AGGRESSIVE_PM);
+    // cyw43_wifi_pm(&cyw43_state, CYW43_AGGRESSIVE_PM);
 
     picoro::debug("Connecting to WiFi...\n");
     int rc = cyw43_arch_wifi_connect_async(SSID, password, CYW43_AUTH_WPA2_AES_PSK);
