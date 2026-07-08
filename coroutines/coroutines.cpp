@@ -212,8 +212,8 @@ picoro::Broadcaster<Measurement>& broadcaster() {
 
 picoro::Coroutine<void> monitor_scd4x(async_context_t *ctx) {
     // I²C GPIO pins
-    const uint sda_pin = 12;
-    const uint scl_pin = 13;
+    const uint sda_pin = 20; // GP20, which is physical pin 26
+    const uint scl_pin = 21; // GP21, which is physical pin 27
     // I²C clock rate
     const uint clock_hz = 400 * 1000;
 
@@ -224,6 +224,11 @@ picoro::Coroutine<void> monitor_scd4x(async_context_t *ctx) {
     gpio_set_function(scl_pin, GPIO_FUNC_I2C);
     gpio_pull_up(sda_pin);
     gpio_pull_up(scl_pin);
+
+    // Data sheet says to wait for 1000 ms before issuing commands.
+    // The program has been doing stuff for at least that long before now,
+    // but might as well.
+    co_await picoro::sleep_for(ctx, std::chrono::milliseconds(1000));
 
     picoro::sensirion::SCD4x sensor{ctx};
     sensor.device.instance = instance;
@@ -236,6 +241,27 @@ picoro::Coroutine<void> monitor_scd4x(async_context_t *ctx) {
     // if (rc) {
     //     picoro::debug("Unable to disable automatic self-calibration. Error code %d.\n", rc);
     // }
+
+    {
+        uint16_t x = 0, y = 0, z = 0;
+        rc = co_await sensor.get_serial_number(&x, &y, &z);
+        if (rc) {
+            std::printf("Unable to get serial number. Error code %d.\n", rc);
+        } else {
+            std::printf("serial number: %x %x %x\n", (unsigned)x, (unsigned)y, (unsigned)z);
+        }
+    }
+
+    {
+        std::printf("Performing self test...\n");
+        uint16_t status;
+        rc = co_await sensor.perform_self_test(&status);
+        if (rc) {
+            std::printf("Unable to perform self test. Error code %d.\n", rc);
+        } else {
+            std::printf("self test status: %d\n", status);
+        }
+    }
 
     rc = co_await sensor.start_periodic_measurement();
     if (rc) {
@@ -286,11 +312,11 @@ picoro::Coroutine<void> wifi_connect(async_context_t *ctx, const char *SSID, con
     } led_guard;
 
     cyw43_arch_enable_sta_mode();
-    const uint32_t ultra_performance_giga_chad_power_mode =
-        cyw43_pm_value(CYW43_NO_POWERSAVE_MODE, 20, 1, 1, 1);
-    cyw43_wifi_pm(&cyw43_state, ultra_performance_giga_chad_power_mode);
+    // const uint32_t ultra_performance_giga_chad_power_mode =
+    //     cyw43_pm_value(CYW43_NO_POWERSAVE_MODE, 20, 1, 1, 1);
+    // cyw43_wifi_pm(&cyw43_state, ultra_performance_giga_chad_power_mode);
     // cyw43_wifi_pm(&cyw43_state, CYW43_PERFORMANCE_PM);
-    // cyw43_wifi_pm(&cyw43_state, CYW43_AGGRESSIVE_PM);
+    cyw43_wifi_pm(&cyw43_state, CYW43_AGGRESSIVE_PM);
 
     picoro::debug("Connecting to WiFi...\n");
     int rc = cyw43_arch_wifi_connect_async(SSID, password, CYW43_AUTH_WPA2_AES_PSK);
@@ -353,7 +379,7 @@ picoro::Coroutine<void> handle_client(picoro::Connection conn) {
     //
     // GET /latest
     // <or anything else>
-    //     Return the most recent measurement immediately a close the connection.
+    //     Return the most recent measurement immediately and close the connection.
     if (std::string_view(readbuf, count).starts_with("GET /measurements HTTP/1.1\r\n")) {
         count = format_chunked_response_header(buffer);
         std::tie(count, err) = co_await conn.send(std::string_view(buffer.data(), count));
