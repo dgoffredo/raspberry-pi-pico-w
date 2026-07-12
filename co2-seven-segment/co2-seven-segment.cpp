@@ -9,7 +9,6 @@
 #include <picoro/sleep.h>
 
 #include <pico/async_context_poll.h>
-#include <pico/cyw43_arch.h>
 #include <pico/stdlib.h>
 
 #include <hardware/i2c.h>
@@ -21,6 +20,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <iterator>
 #include <vector>
 
@@ -190,12 +190,12 @@ picoro::Coroutine<void> monitor_scd4x(
     async_context_t *ctx,
     const std::function<void(unsigned)>& show_number) {
   // I²C GPIO pins
-  const uint sda_pin = 20;
-  const uint scl_pin = 21;
+  const uint sda_pin = 6;
+  const uint scl_pin = 7;
   // I²C clock rate
   const uint clock_hz = 400 * 1000;
 
-  i2c_inst_t *const instance = i2c0;
+  i2c_inst_t *const instance = i2c1;
   const uint actual_baudrate = i2c_init(instance, clock_hz);
   printf("The actual I2C baudrate is %u Hz\n", actual_baudrate);
   gpio_set_function(sda_pin, GPIO_FUNC_I2C);
@@ -206,10 +206,25 @@ picoro::Coroutine<void> monitor_scd4x(
   picoro::sensirion::SCD4x sensor{ctx};
   sensor.device.instance = instance;
 
-  int rc = co_await sensor.set_automatic_self_calibration(0);
+  int rc;
+  // Better to keep automatic self-calibration.
+  // rc = co_await sensor.set_automatic_self_calibration(0);
+  // if (rc) {
+  //   picoro::debug("Unable to disable automatic self-calibration. Error code %d.\n", rc);
+  // }
+
+  // One second, says the data sheet.
+  co_await picoro::sleep_for(ctx, std::chrono::seconds(2));
+
+  /*
+  uint16_t status;
+  rc = co_await sensor.perform_self_test(&status);
   if (rc) {
-    picoro::debug("Unable to disable automatic self-calibration. Error code %d.\n", rc);
+    picoro::debug("Unable to perform self test. Error code %d.\n", rc);
+  } else {
+    picoro::debug("Self test returned status %u.\n", (unsigned)status);
   }
+  */
 
   rc = co_await sensor.start_periodic_measurement();
   if (rc) {
@@ -292,7 +307,7 @@ struct Button {
     .user_data = nullptr, // will cast instead
   },
   .ctx = nullptr, // initialized in `main()`
-  .gpio = 16,
+  .gpio = 20,
   .event_count = 0,
   .display = nullptr, // initialized in `main()`
   .brightness = 0,
@@ -352,18 +367,13 @@ void gpio_irq_handler(uint gpio, uint32_t event_mask) {
 int main() {
   stdio_init_all();
 
-  // Make sure that GPIO 9 is in input mode (high impedance), because it's
-  // shorted to 3.3V.
-  gpio_init(9);
-  gpio_set_dir(9, GPIO_IN);
-
   // I²C GPIO pins
-  const uint sda_pin = 10;
-  const uint scl_pin = 11;
+  const uint sda_pin = 4;
+  const uint scl_pin = 5;
   // I²C clock rate
   const uint clock_hz = 400 * 1000;
 
-  i2c_inst_t *const instance = i2c1;
+  i2c_inst_t *const instance = i2c0;
   const uint actual_baudrate = i2c_init(instance, clock_hz);
   std::printf("The actual I2C baudrate is %u Hz\n", actual_baudrate);
   gpio_set_function(sda_pin, GPIO_FUNC_I2C);
@@ -377,7 +387,8 @@ int main() {
     .sda_gpio = sda_pin
   });
 
-  display.brightness(0);
+  // Defaults to full brightness. Adjust here to change.
+  // display.brightness(0);
 
   async_context_poll_t context = {};
   bool succeeded = async_context_poll_init_with_defaults(&context);
@@ -385,13 +396,6 @@ int main() {
     panic("Failed to initialize async_context_poll_t\n");
   }
   async_context_t *const ctx = &context.core;
-
-  // Do some WiFi chip setup here, just so that we can use the LED.
-  cyw43_arch_set_async_context(ctx);
-  // 🇺🇸 🦅
-  if (cyw43_arch_init_with_country(CYW43_COUNTRY_USA)) {
-    panic("failed to initialize WiFi\n");
-  }
 
   // Set up the button.
   button.display = &display;
@@ -414,7 +418,6 @@ int main() {
     }));
 
   // unreachable
-  cyw43_arch_deinit();
   async_context_deinit(ctx);
   i2c_deinit(instance);
 }

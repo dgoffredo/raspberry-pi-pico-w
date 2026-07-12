@@ -35,7 +35,6 @@ target_link_libraries(co2-seven-segment
         picoro_event_loop
         picoro_sleep
 
-        pico_cyw43_arch_lwip_poll
         pico_stdlib
         pico_time
 
