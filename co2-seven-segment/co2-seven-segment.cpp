@@ -75,6 +75,9 @@ class SevenSegmentDisplay {
   // Set the display brightness to the specified `magnitude`, which is at most
   // 15.
   void brightness(unsigned magnitude);
+
+  // Show "Err_", where the "_" is the hexadecimal digit `hex`. `hex` must be in 0...15.
+  void error(int hex);
 };
 
 inline
@@ -174,13 +177,25 @@ void SevenSegmentDisplay::brightness(unsigned magnitude) {
   update();
 }
 
-picoro::Coroutine<bool> data_ready(const picoro::sensirion::SCD4x &sensor) {
+inline
+void SevenSegmentDisplay::error(int hex) {
+  const std::uint8_t E = font[0xE];
+  const std::uint8_t r = 0x50;
+  number(hex, OMIT_LEADING_ZEROS);
+  buffer[1 + 0 * 2] = E;
+  buffer[1 + 1 * 2] = r;
+  buffer[1 + 1 * 2] = r;
+  update();
+}
+
+picoro::Coroutine<bool> data_ready(const picoro::sensirion::SCD4x &sensor, const std::function<void(int hex)>& show_error) {
   bool result;
   int rc = co_await sensor.get_data_ready_flag(&result);
   if (rc) {
     picoro::debug(
         "Unable to query whether the sensor has data ready. Error code %d.\n",
         rc);
+    show_error(2);
     co_return false;
   }
   co_return result;
@@ -188,7 +203,8 @@ picoro::Coroutine<bool> data_ready(const picoro::sensirion::SCD4x &sensor) {
 
 picoro::Coroutine<void> monitor_scd4x(
     async_context_t *ctx,
-    const std::function<void(unsigned)>& show_number) {
+    const std::function<void(unsigned)>& show_number,
+    const std::function<void(int hex)>& show_error) {
   // I²C GPIO pins
   const uint sda_pin = 6;
   const uint scl_pin = 7;
@@ -229,11 +245,12 @@ picoro::Coroutine<void> monitor_scd4x(
   rc = co_await sensor.start_periodic_measurement();
   if (rc) {
     picoro::debug("Unable to start periodic measurement mode. Error code %d.\n", rc);
+    show_error(1);
   }
 
   for (;;) {
     co_await picoro::sleep_for(ctx, std::chrono::seconds(5));
-    while (! co_await data_ready(sensor)) {
+    while (! co_await data_ready(sensor, show_error)) {
       co_await picoro::sleep_for(ctx, std::chrono::seconds(1));
     }
 
@@ -243,6 +260,7 @@ picoro::Coroutine<void> monitor_scd4x(
     rc = co_await sensor.read_measurement(&co2_ppm, &temperature_millicelsius, &relative_humidity_millipercent);
     if (rc) {
       picoro::debug("Unable to read sensor measurement. Error code %d.\n", rc);
+      show_error(3);
     } else {
       std::printf("CO2: %hu ppm\ttemperature: %.1f C\thumidity: %.1f%%\n", co2_ppm, temperature_millicelsius / 1000.0f, relative_humidity_millipercent / 1000.0f);
       show_number(co2_ppm);
@@ -411,11 +429,19 @@ int main() {
 
   run_event_loop(ctx,
     boing_boing(ctx, display, stop_boing_boing),
-    monitor_scd4x(ctx, [&](unsigned co2_ppm) {
-      stop_boing_boing = true;
-      display.number(co2_ppm, SevenSegmentDisplay::OMIT_LEADING_ZEROS);
-      display.update();
-    }));
+    monitor_scd4x(ctx,
+      // show number
+      [&](unsigned co2_ppm) {
+        stop_boing_boing = true;
+        display.number(co2_ppm, SevenSegmentDisplay::OMIT_LEADING_ZEROS);
+        display.update();
+      },
+      // show error
+      [&](int hex) {
+        stop_boing_boing = true;
+        display.error(hex);
+        display.update();
+      }));
 
   // unreachable
   async_context_deinit(ctx);
